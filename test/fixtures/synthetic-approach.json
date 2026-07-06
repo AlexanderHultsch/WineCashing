@@ -1,0 +1,24 @@
+{
+  "meta": {
+    "name": "synthetic-approach",
+    "recorded_at": "2026-01-01T12:00:00Z",
+    "notes": "Synthetischer Trace: gerades Zugehen von ~50 m Süd auf das Ziel, Schritte ~10 m alle 2 s. Enthält einen groben GPS-Ausreißer (t=6000) mit schlechter accuracy, der verworfen werden soll."
+  },
+  "target": { "lat": 48.1371, "lng": 11.5754 },
+  "samples": [
+    { "kind": "gps",         "lat": 48.136650, "lng": 11.5754, "accuracy": 8,  "timestamp": 0 },
+    { "kind": "orientation", "rawHeading": 3,   "absolute": true, "source": "absolute", "timestamp": 500 },
+    { "kind": "gps",         "lat": 48.136740, "lng": 11.5754, "accuracy": 7,  "timestamp": 2000 },
+    { "kind": "orientation", "rawHeading": 358, "absolute": true, "source": "absolute", "timestamp": 2500 },
+    { "kind": "gps",         "lat": 48.136830, "lng": 11.5754, "accuracy": 9,  "timestamp": 4000 },
+    { "kind": "gps",         "lat": 48.170000, "lng": 11.5754, "accuracy": 45, "timestamp": 6000 },
+    { "kind": "gps",         "lat": 48.136920, "lng": 11.5754, "accuracy": 6,  "timestamp": 8000 },
+    { "kind": "orientation", "rawHeading": 1,   "absolute": true, "source": "absolute", "timestamp": 8500 },
+    { "kind": "gps",         "lat": 48.137010, "lng": 11.5754, "accuracy": 7,  "timestamp": 10000 },
+    { "kind": "gps",         "lat": 48.137090, "lng": 11.5754, "accuracy": 6,  "timestamp": 12000 }
+  ],
+  "expect": {
+    "outlier_timestamps": [6000],
+    "converges_monotonically": true
+  }
+}

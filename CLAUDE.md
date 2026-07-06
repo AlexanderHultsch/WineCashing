@@ -15,6 +15,10 @@ Die verbindliche Schnittstellen-Definition steht in **`docs/technischer-vertrag.
 - `npm run dev` — Server mit Auto-Reload (`node --watch server.js`)
 - `npm test` — alle Tests (`node --test`, Node-eingebaut)
 - Einzelner Test: `node --test test/sensorFusion.test.js`
+- `npm run lint` / `npm run format` — ESLint (flat config) / Prettier
+- `npm run seed:admin` — ersten `is_admin`-Nutzer aus `ADMIN_USERNAME`/`ADMIN_PASSWORD` anlegen (`.env`)
+
+Konfiguration über `.env` (Vorlage: `.env.example`). IDs im Datenmodell sind UUIDs (`TEXT`).
 
 ## Architektur
 
@@ -32,7 +36,7 @@ Persistenz in `db/` (SQLite-Schema in `db/schema.sql`). Code-Erzeugung in `lib/r
 Explizite **State-Machine** (Vertrag Teil B): `PERMISSION_REQUIRED → LOADING → SEARCHING → COMPLETED`, plus `ROUTE_UNAVAILABLE`. `searchMode.js` orchestriert Polling (~7 s), Sensor-Pipeline und Zustandsübergänge — es ist **nicht** rein und hält den Verlaufspuffer.
 
 ### 3. Sensor-Fusion (`public/js/sensorFusion.js` + Sensor-Adapter)
-`sensorFusion.js` ist eine **Sammlung reiner Funktionen** (keine Seiteneffekte, kein DOM-/Sensor-Zugriff) für Distanz, Bearing, Heading-Normalisierung, Ausreißer-Glättung und Plausibilitätsprüfung (Vertrag Teil C). Sensor-Auslesen/Berechtigungen/Wake-Lock liegen getrennt in `public/js/geolocation.js` und `public/js/sensors.js`. Weil die Kernfunktionen rein sind, wird der Algorithmus offline gegen aufgezeichnete Traces getestet (`test/sensorFusion.test.js`).
+`sensorFusion.js` ist eine **Sammlung reiner Funktionen** (keine Seiteneffekte, kein DOM-/Sensor-Zugriff) für Distanz, Bearing, Heading-Normalisierung, Ausreißer-Glättung und Plausibilitätsprüfung (Vertrag Teil C). Sensor-Auslesen/Berechtigungen/Wake-Lock liegen getrennt in `public/js/geolocation.js` und `public/js/sensors.js`. Weil die Kernfunktionen rein sind, wird der Algorithmus offline gegen aufgezeichnete Traces getestet: Fixtures in `test/fixtures/` (Format dort im README), Replay-Harness in `test/helpers/replay.js`, Tests in `test/traceReplay.test.js` und `test/sensorFusion.test.js`. Die Algorithmus-Tests sind `skip`, bis `sensorFusion.js` implementiert ist.
 
 ## Zwingende Invarianten (nicht verletzen)
 
