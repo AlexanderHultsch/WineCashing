@@ -21,7 +21,6 @@ export const ERR = {
   ROUTE_ACCESS_REVOKED:  [403, 'ROUTE_ACCESS_REVOKED'],
   NOT_FOUND:             [404, 'NOT_FOUND'],
   UNAUTHENTICATED:       [401, 'UNAUTHENTICATED'],
-  FORBIDDEN:             [403, 'FORBIDDEN'],
   VALIDATION:            [400, 'VALIDATION'],
   RATE_LIMITED:          [429, 'RATE_LIMITED'],
 };

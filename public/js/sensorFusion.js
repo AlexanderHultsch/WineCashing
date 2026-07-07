@@ -141,11 +141,8 @@ export function isPlausibleMovement(prevSmoothed, newSample, dtSeconds, lastHead
 // Messung vorlag) sowie explizit als unplausibel markierte Samples (sample.plausible === false)
 // werden ausgeschlossen. Ergebnis nie leer (Fallback: newSample).
 export function smoothPosition(recentSamples, newSample, config = CONFIG) {
-  // Arbeitsmenge: recentSamples inkl. newSample (Harness legt newSample bereits ab).
-  const samples = [...recentSamples];
-  if (!samples.some((s) => s === newSample || s.timestamp === newSample.timestamp)) {
-    samples.push(newSample);
-  }
+  // Arbeitsmenge: recentSamples inkl. newSample (Aufrufer legen es i. d. R. bereits ab).
+  const samples = recentSamples.includes(newSample) ? recentSamples : [...recentSamples, newSample];
 
   const graceMs = config.OUTLIER_GRACE_SEC * 1000;
   const kept = samples.filter((s) => {

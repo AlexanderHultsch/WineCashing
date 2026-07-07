@@ -17,6 +17,15 @@ function asNonEmptyString(value, field, max = 500) {
   return value;
 }
 
+// Optionales Textfeld: String oder null (undefined nur, wo der Aufrufer es vorher ausschließt).
+function asOptionalString(value, field, max = 120) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || value.length > max) {
+    throw apiError('VALIDATION', `Feld "${field}" muss ein String sein.`);
+  }
+  return value;
+}
+
 function generateUniqueCode(repo, generateCode) {
   for (let i = 0; i < 10; i++) {
     const code = generateCode();
@@ -99,7 +108,7 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
       lat,
       lng,
       hint_text,
-      name: name ?? null,
+      name: asOptionalString(name, 'name'),
       updated_at: now(),
     });
     res.status(201).json(toWaypoint(wp));
@@ -112,7 +121,7 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
     if (req.body?.lng !== undefined) patch.lng = asNumber(req.body.lng, 'lng', -180, 180);
     if (req.body?.hint_text !== undefined) patch.hint_text = asNonEmptyString(req.body.hint_text, 'hint_text');
     if (req.body?.order_index !== undefined) patch.order_index = asNumber(req.body.order_index, 'order_index', 0, 1e6);
-    if (req.body?.name !== undefined) patch.name = req.body.name;
+    if (req.body?.name !== undefined) patch.name = asOptionalString(req.body.name, 'name');
     res.json(toWaypoint(repo.updateWaypoint(req.params.wpId, patch)));
   });
 

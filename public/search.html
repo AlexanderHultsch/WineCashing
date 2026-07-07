@@ -133,13 +133,22 @@
       }
 
       async function joinAndStart(code) {
+        controller?.stop();
+        controller = null;
         try {
           const state0 = await api.join(code.trim());
           setRouteCode(code.trim());
           controller = buildController(state0.route.id);
           await controller.start();
         } catch (err) {
-          leave(err.code === 'ROUTE_ACCESS_REVOKED' ? 'Der Code ist nicht mehr gültig.' : 'Code unbekannt. Bitte prüfen.');
+          if (err.status) {
+            // Server hat geantwortet: Code ist wirklich ungültig/abgelaufen -> verwerfen.
+            leave(err.code === 'ROUTE_ACCESS_REVOKED' ? 'Der Code ist nicht mehr gültig.' : 'Code unbekannt. Bitte prüfen.');
+          } else {
+            // Netzwerkfehler: Code behalten, damit ein erneuter Versuch möglich bleibt.
+            show('screen-join');
+            $('join-error').textContent = 'Keine Verbindung. Bitte erneut versuchen.';
+          }
         }
       }
 

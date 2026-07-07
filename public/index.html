@@ -30,6 +30,13 @@
         }
       }
 
+      // Häufigstes Muster: API-Aufruf auf der offenen Route, danach neu laden.
+      const call = (fn) =>
+        guard(async () => {
+          await fn();
+          await refreshRoute();
+        });
+
       // --- Datenlader ---
       async function loadRoutes() {
         S.routes = await api.listRoutes();
@@ -236,19 +243,23 @@
               await api.addWaypoint(rid, { lat, lng, hint_text, name: name || undefined });
               await refreshRoute();
             }),
-          'wp-del': () => guard(async () => (await api.deleteWaypoint(rid, id), refreshRoute())),
+          'wp-del': () => call(() => api.deleteWaypoint(rid, id)),
           'wp-up': () => guard(() => moveWaypoint(id, -1)),
           'wp-down': () => guard(() => moveWaypoint(id, +1)),
-          'code-create': () => guard(async () => (await api.createCode(rid), refreshRoute())),
-          'code-renew': () => guard(async () => (await api.renewCode(rid), refreshRoute())),
-          'code-deactivate': () => guard(async () => (await api.deactivateCode(rid), refreshRoute())),
-          start: () => guard(async () => (await api.startRoute(rid), refreshRoute())),
-          reset: () => guard(async () => (await api.resetRoute(rid), refreshRoute())),
-          'delete-route': () =>
+          'code-create': () => call(() => api.createCode(rid)),
+          'code-renew': () => call(() => api.renewCode(rid)),
+          'code-deactivate': () => call(() => api.deactivateCode(rid)),
+          start: () => call(() => api.startRoute(rid)),
+          reset: () => {
+            if (confirm('Alle Funde dieser Route zurücksetzen?')) call(() => api.resetRoute(rid));
+          },
+          'delete-route': () => {
+            if (!confirm('Route wirklich löschen? Das kann nicht rückgängig gemacht werden.')) return;
             guard(async () => {
               await api.deleteRoute(rid);
               await loadRoutes();
-            }),
+            });
+          },
         };
         actions[action]?.();
       });

@@ -13,9 +13,6 @@ export const State = {
   ROUTE_UNAVAILABLE: 'ROUTE_UNAVAILABLE',
 };
 
-// SEARCHING-Unterzustände (rein UI).
-export const HintSubState = { HIDDEN: 'HINT_HIDDEN', REVEALED: 'HINT_REVEALED' };
-
 // Ereignisse, die Übergänge auslösen (Vertrag B.2).
 export const Event = {
   PERMISSION_GRANTED: 'PERMISSION_GRANTED',
@@ -288,6 +285,7 @@ export function createSearchController(deps) {
 
   // --- Lebenszyklus ---
   async function start() {
+    stop(); // idempotent: alte Abos/Timer beenden, falls start() erneut aufgerufen wird
     screenAngle = sensors.getScreenAngle ? sensors.getScreenAngle() : 0;
     try {
       await geolocation.requestLocationPermission();

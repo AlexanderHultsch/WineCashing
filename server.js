@@ -9,5 +9,3 @@ const app = createApp({ repo });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Wine Caching läuft auf http://localhost:${PORT}`));
-
-export default app;

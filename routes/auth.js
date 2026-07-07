@@ -10,6 +10,14 @@ function requireString(value, field, { min = 1, max = 200 } = {}) {
   return value.trim();
 }
 
+// Passwörter werden NICHT getrimmt — Leerzeichen sind Teil des Geheimnisses.
+function requirePassword(value, { min = 6, max = 200 } = {}) {
+  if (typeof value !== 'string' || value.length < min || value.length > max) {
+    throw apiError('VALIDATION', 'Feld "password" ist ungültig (min. 6 Zeichen).');
+  }
+  return value;
+}
+
 export function createAuthRouter({ repo, auth, hashPassword, verifyPassword, newId, now, rateLimiter }) {
   const router = Router();
   const limit = rateLimiter ?? ((_req, _res, next) => next());
@@ -17,7 +25,7 @@ export function createAuthRouter({ repo, auth, hashPassword, verifyPassword, new
   // POST /register {username, password} -> 201 {user} + Session-Cookie | 409 USERNAME_TAKEN
   router.post('/register', limit, (req, res) => {
     const username = requireString(req.body?.username, 'username', { min: 3, max: 32 });
-    const password = requireString(req.body?.password, 'password', { min: 6 });
+    const password = requirePassword(req.body?.password);
     if (repo.getUserByUsername(username)) throw apiError('USERNAME_TAKEN', 'Benutzername bereits vergeben.');
 
     const user = repo.createUser({
@@ -34,7 +42,7 @@ export function createAuthRouter({ repo, auth, hashPassword, verifyPassword, new
   // POST /login {username, password} -> 200 {user} + Session-Cookie | 401 INVALID_CREDENTIALS
   router.post('/login', limit, (req, res) => {
     const username = requireString(req.body?.username, 'username');
-    const password = requireString(req.body?.password, 'password');
+    const password = requirePassword(req.body?.password, { min: 1 });
     const user = repo.getUserByUsername(username);
     if (!user || !verifyPassword(password, user.password_hash)) {
       throw apiError('INVALID_CREDENTIALS', 'Benutzername oder Passwort falsch.');
@@ -56,7 +64,7 @@ export function createAuthRouter({ repo, auth, hashPassword, verifyPassword, new
   // POST /admin/reset-password {username, new_password} -> 200 | 403 NOT_ADMIN | 404 USER_NOT_FOUND
   router.post('/admin/reset-password', auth.requireAdmin, (req, res) => {
     const username = requireString(req.body?.username, 'username');
-    const newPassword = requireString(req.body?.new_password, 'new_password', { min: 6 });
+    const newPassword = requirePassword(req.body?.new_password);
     const target = repo.getUserByUsername(username);
     if (!target) throw apiError('USER_NOT_FOUND', 'Nutzer nicht gefunden.');
     repo.setUserPassword(target.id, hashPassword(newPassword));
