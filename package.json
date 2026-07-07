@@ -13,8 +13,6 @@
     "seed:admin": "node scripts/seedAdmin.js"
   },
   "dependencies": {
-    "bcrypt": "^5.1.1",
-    "better-sqlite3": "^11.0.0",
     "express": "^4.19.2",
     "express-session": "^1.18.0"
   },

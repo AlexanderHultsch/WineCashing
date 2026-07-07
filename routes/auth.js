@@ -1,22 +1,67 @@
-// Auth-Endpoints (Vertrag A.3). Passwörter mit bcrypt/argon2 hashen; Login/Register rate-limitiert.
+// Auth-Endpoints (Vertrag A.3). Factory: Abhängigkeiten werden injiziert (testbar).
 import { Router } from 'express';
-import { requireOwner, requireAdmin } from '../middleware/auth.js';
+import { apiError } from '../middleware/errorEnvelope.js';
+import { publicUser } from '../lib/domain.js';
 
-const router = Router();
+function requireString(value, field, { min = 1, max = 200 } = {}) {
+  if (typeof value !== 'string' || value.trim().length < min || value.length > max) {
+    throw apiError('VALIDATION', `Feld "${field}" ist ungültig.`);
+  }
+  return value.trim();
+}
 
-// POST /api/auth/register  {username, password} -> 201 {user} + Session-Cookie | 409 USERNAME_TAKEN
-router.post('/register', (req, res, next) => next(new Error('TODO')));
+export function createAuthRouter({ repo, auth, hashPassword, verifyPassword, newId, now, rateLimiter }) {
+  const router = Router();
+  const limit = rateLimiter ?? ((_req, _res, next) => next());
 
-// POST /api/auth/login  {username, password} -> 200 {user} + Session-Cookie | 401 INVALID_CREDENTIALS
-router.post('/login', (req, res, next) => next(new Error('TODO')));
+  // POST /register {username, password} -> 201 {user} + Session-Cookie | 409 USERNAME_TAKEN
+  router.post('/register', limit, (req, res) => {
+    const username = requireString(req.body?.username, 'username', { min: 3, max: 32 });
+    const password = requireString(req.body?.password, 'password', { min: 6 });
+    if (repo.getUserByUsername(username)) throw apiError('USERNAME_TAKEN', 'Benutzername bereits vergeben.');
 
-// POST /api/auth/logout -> 204
-router.post('/logout', (req, res, next) => next(new Error('TODO')));
+    const user = repo.createUser({
+      id: newId(),
+      username,
+      password_hash: hashPassword(password),
+      is_admin: false,
+      created_at: now(),
+    });
+    req.session.userId = user.id;
+    res.status(201).json({ user: publicUser(user) });
+  });
 
-// GET /api/auth/me -> 200 {user} | 401
-router.get('/me', requireOwner, (req, res, next) => next(new Error('TODO')));
+  // POST /login {username, password} -> 200 {user} + Session-Cookie | 401 INVALID_CREDENTIALS
+  router.post('/login', limit, (req, res) => {
+    const username = requireString(req.body?.username, 'username');
+    const password = requireString(req.body?.password, 'password');
+    const user = repo.getUserByUsername(username);
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      throw apiError('INVALID_CREDENTIALS', 'Benutzername oder Passwort falsch.');
+    }
+    req.session.userId = user.id;
+    res.json({ user: publicUser(user) });
+  });
 
-// POST /api/auth/admin/reset-password {username, new_password} -> 200 | 403 NOT_ADMIN | 404 USER_NOT_FOUND
-router.post('/admin/reset-password', requireAdmin, (req, res, next) => next(new Error('TODO')));
+  // POST /logout -> 204
+  router.post('/logout', (req, res) => {
+    req.session?.destroy(() => res.status(204).end());
+  });
 
-export default router;
+  // GET /me -> 200 {user} | 401
+  router.get('/me', auth.requireOwner, (req, res) => {
+    res.json({ user: publicUser(req.user) });
+  });
+
+  // POST /admin/reset-password {username, new_password} -> 200 | 403 NOT_ADMIN | 404 USER_NOT_FOUND
+  router.post('/admin/reset-password', auth.requireAdmin, (req, res) => {
+    const username = requireString(req.body?.username, 'username');
+    const newPassword = requireString(req.body?.new_password, 'new_password', { min: 6 });
+    const target = repo.getUserByUsername(username);
+    if (!target) throw apiError('USER_NOT_FOUND', 'Nutzer nicht gefunden.');
+    repo.setUserPassword(target.id, hashPassword(newPassword));
+    res.json({ ok: true });
+  });
+
+  return router;
+}

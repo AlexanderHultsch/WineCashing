@@ -13,14 +13,18 @@ export default [
   },
   {
     // Backend / Node
-    files: ['server.js', 'routes/**', 'middleware/**', 'lib/**', 'db/**', 'scripts/**', 'test/**'],
+    files: ['app.js', 'server.js', 'routes/**', 'middleware/**', 'lib/**', 'db/**', 'scripts/**', 'test/**'],
     languageOptions: {
       globals: {
         process: 'readonly',
         console: 'readonly',
+        Buffer: 'readonly',
         URL: 'readonly',
+        fetch: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
       },
     },
   },

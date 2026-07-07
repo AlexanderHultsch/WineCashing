@@ -24,13 +24,15 @@ Konfiguration über `.env` (Vorlage: `.env.example`). IDs im Datenmodell sind UU
 
 Drei Schichten entlang des technischen Vertrags:
 
-### 1. Backend-API (`server.js`, `routes/`, `middleware/`, `lib/`, `db/`)
-Node + Express, JSON unter Basis-Pfad `/api`. Router-Aufteilung folgt dem Vertrag:
+### 1. Backend-API (`app.js`, `server.js`, `routes/`, `middleware/`, `lib/`, `db/`)
+Node + Express, JSON unter Basis-Pfad `/api`. `app.js` ist eine **Factory** (`createApp({ repo, ... })`) mit injizierten Abhängigkeiten — dadurch gegen eine `:memory:`-DB testbar; `server.js` verdrahtet nur die echte DB und lauscht. Router sind ebenfalls Factories (`createXRouter({ repo, auth, ... })`):
 - `routes/auth.js` — Registrierung/Login/Logout/`me`, Admin-Passwort-Reset (Vertrag A.3)
 - `routes/routes.js` — Routen- & Wegpunkt-CRUD, Start, Reset, Routen-Code (A.4)
 - `routes/progress.js` — Beitritt (`/api/join`), Zustand lesen (`/state`, Polling-Quelle), Fund/Skip melden (A.5)
 
-Persistenz in `db/` (SQLite-Schema in `db/schema.sql`). Code-Erzeugung in `lib/routeCode.js`.
+Aller SQL-Zugriff liegt hinter dem **Repository** (`db/repository.js`, Schnittstelle injiziert). Reine Bausteine in `lib/`: `domain.js` (Status-Übergänge, Shaping A.6), `routeCode.js`, `password.js`, `ids.js`, `time.js`.
+
+**Keine nativen Abhängigkeiten:** Persistenz über Node-eingebautes **`node:sqlite`** (`db/index.js`, Schema `db/schema.sql`), Passwort-Hashing über **`node:crypto` scrypt** (`lib/password.js`) statt bcrypt/argon2 — beides erfüllt den Vertrag und läuft ohne `npm`-Build offline.
 
 ### 2. Client-Such-Modus (`public/search.html`, `public/js/searchMode.js`)
 Explizite **State-Machine** (Vertrag Teil B): `PERMISSION_REQUIRED → LOADING → SEARCHING → COMPLETED`, plus `ROUTE_UNAVAILABLE`. `searchMode.js` orchestriert Polling (~7 s), Sensor-Pipeline und Zustandsübergänge — es ist **nicht** rein und hält den Verlaufspuffer.
