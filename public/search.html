@@ -1,15 +1,185 @@
 <!DOCTYPE html>
 <html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Wine Caching — Suche</title>
-  <link rel="stylesheet" href="css/styles.css" />
-</head>
-<body>
-  <!-- Such-Modus (Mitsucher): Flaschen-Kompass, Distanz, Hinweis, Gefunden/Skip. -->
-  <!-- Zustände gerendert aus searchMode.js State-Machine (Vertrag Teil B). TODO -->
-  <main id="search"></main>
-  <script type="module" src="js/searchMode.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Wine Caching — Suche</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <main class="app" id="app">
+      <!-- Beitritt -->
+      <section id="screen-join" class="stack">
+        <h1>🍷 Wine Caching</h1>
+        <p class="muted">Gib den Routen-Code ein, den du bekommen hast.</p>
+        <div class="card stack">
+          <div class="field">
+            <label for="code">Routen-Code</label>
+            <input id="code" placeholder="z. B. Wc7f-K2pq" autocapitalize="off" autocomplete="off" spellcheck="false" />
+          </div>
+          <button id="btn-join" class="primary block">Beitreten</button>
+          <p id="join-error" class="error"></p>
+        </div>
+      </section>
+
+      <!-- Berechtigung -->
+      <section id="screen-permission" class="stack center hidden">
+        <h2>Standort benötigt</h2>
+        <p class="muted">Für die Suche brauchen wir Zugriff auf Standort und (falls möglich) den Kompass.</p>
+        <button id="btn-permission" class="primary">Standort freigeben</button>
+      </section>
+
+      <!-- Laden -->
+      <section id="screen-loading" class="stack center hidden">
+        <p class="muted">Lade Route …</p>
+      </section>
+
+      <!-- Suche -->
+      <section id="screen-searching" class="stack hidden">
+        <div class="row between">
+          <span class="badge" id="wp-name">Wegpunkt</span>
+          <button id="btn-leave" class="ghost small">Verlassen</button>
+        </div>
+        <div class="compass"><div class="needle" id="needle">🍾</div></div>
+        <div class="distance">
+          <div><span class="big" id="dist-bottles">–</span> <span class="unit">Flaschenlängen</span></div>
+          <div class="unit" id="dist-meters"></div>
+        </div>
+        <div class="statusbar" id="statusbar"></div>
+        <div class="hint hidden" id="hint"></div>
+        <div class="row">
+          <button id="btn-found" class="accent block" disabled>Gefunden!</button>
+          <button id="btn-skip" class="ghost block">Überspringen</button>
+        </div>
+      </section>
+
+      <!-- Abschluss -->
+      <section id="screen-completed" class="stack center hidden">
+        <h1>🎉 Geschafft!</h1>
+        <p class="muted">Alle Wegpunkte dieser Route sind erledigt. Prost!</p>
+        <button id="btn-leave2" class="ghost">Neue Route</button>
+      </section>
+
+      <!-- Nicht verfügbar -->
+      <section id="screen-unavailable" class="stack center hidden">
+        <h2>Route nicht verfügbar</h2>
+        <p class="muted" id="unavailable-msg">Diese Route ist gerade nicht erreichbar oder der Zugang wurde beendet.</p>
+        <button id="btn-leave3" class="ghost">Neuen Code eingeben</button>
+      </section>
+    </main>
+
+    <script type="module">
+      import { createSearchController, State } from './js/searchMode.js';
+      import * as geolocation from './js/geolocation.js';
+      import * as sensors from './js/sensors.js';
+      import { api, setRouteCode, getRouteCode, clearRouteCode } from './js/api.js';
+
+      const $ = (id) => document.getElementById(id);
+      const screens = {
+        [State.PERMISSION_REQUIRED]: 'screen-permission',
+        [State.LOADING]: 'screen-loading',
+        [State.SEARCHING]: 'screen-searching',
+        [State.COMPLETED]: 'screen-completed',
+        [State.ROUTE_UNAVAILABLE]: 'screen-unavailable',
+      };
+      const allScreens = ['screen-join', ...Object.values(screens)];
+
+      function show(id) {
+        for (const s of allScreens) $(s).classList.toggle('hidden', s !== id);
+      }
+
+      let controller = null;
+
+      function render(vm) {
+        if (!vm) return;
+        show(screens[vm.state] ?? 'screen-join');
+
+        if (vm.state === State.SEARCHING) {
+          $('wp-name').textContent = vm.activeWaypoint?.name || 'Nächster Wegpunkt';
+          if (vm.rotation != null) $('needle').style.transform = `rotate(${vm.rotation}deg)`;
+
+          const bottles = vm.bottles == null ? '–' : Math.max(0, Math.round(vm.bottles)).toLocaleString('de-DE');
+          $('dist-bottles').textContent = bottles;
+          $('dist-meters').textContent = vm.distanceMeters == null ? 'Suche Signal …' : `≈ ${vm.distanceMeters.toFixed(0)} m Luftlinie`;
+
+          const hintEl = $('hint');
+          if (vm.hintRevealed && vm.activeWaypoint?.hint_text) {
+            hintEl.textContent = `💡 ${vm.activeWaypoint.hint_text}`;
+            hintEl.classList.remove('hidden');
+          } else {
+            hintEl.classList.add('hidden');
+          }
+          $('btn-found').disabled = !vm.hintRevealed;
+
+          const status = $('statusbar');
+          if (vm.offline) {
+            status.innerHTML = `<span class="dot off"></span> Offline${vm.queuedActions ? ` · ${vm.queuedActions} in Warteschlange` : ''}`;
+          } else if (vm.distanceMeters == null) {
+            status.innerHTML = `<span class="dot warn"></span> Warte auf GPS …`;
+          } else {
+            status.innerHTML = `<span class="dot"></span> Live`;
+          }
+        }
+      }
+
+      function buildController(routeId) {
+        return createSearchController({
+          routeId,
+          api: { state: api.state, found: api.found, skip: api.skip },
+          geolocation,
+          sensors,
+          render,
+        });
+      }
+
+      async function joinAndStart(code) {
+        try {
+          const state0 = await api.join(code.trim());
+          setRouteCode(code.trim());
+          controller = buildController(state0.route.id);
+          await controller.start();
+        } catch (err) {
+          leave(err.code === 'ROUTE_ACCESS_REVOKED' ? 'Der Code ist nicht mehr gültig.' : 'Code unbekannt. Bitte prüfen.');
+        }
+      }
+
+      function leave(message) {
+        controller?.stop();
+        controller = null;
+        clearRouteCode();
+        show('screen-join');
+        $('join-error').textContent = message || '';
+        $('code').value = '';
+      }
+
+      // Buttons
+      $('btn-join').addEventListener('click', () => {
+        const code = $('code').value;
+        if (!code.trim()) {
+          $('join-error').textContent = 'Bitte Code eingeben.';
+          return;
+        }
+        $('join-error').textContent = '';
+        joinAndStart(code);
+      });
+      $('code').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') $('btn-join').click();
+      });
+      $('btn-permission').addEventListener('click', () => controller?.start());
+      $('btn-found').addEventListener('click', () => controller?.reportFound());
+      $('btn-skip').addEventListener('click', () => controller?.reportSkip());
+      for (const id of ['btn-leave', 'btn-leave2', 'btn-leave3']) $(id).addEventListener('click', () => leave());
+
+      // Verbindungsstatus an den Controller melden.
+      window.addEventListener('online', () => controller?.setOffline(false));
+      window.addEventListener('offline', () => controller?.setOffline(true));
+
+      // Auto-Resume, wenn schon ein Code gespeichert ist.
+      const saved = getRouteCode();
+      if (saved) {
+        $('code').value = saved;
+        joinAndStart(saved);
+      }
+    </script>
+  </body>
 </html>

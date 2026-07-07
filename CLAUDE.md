@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Wine Caching** — eine Geocaching-artige Web-App für den privaten Freundeskreis. Ein *Ersteller (Owner)* legt eine **Route** aus **Wegpunkten** (versteckte Weinflaschen) mit GPS-Koordinaten und Hinweistext an. *Mitsucher* treten **kontolos** über einen **Routen-Code** bei und werden im **Such-Modus** per Kompass + Distanz (gemessen in „Flaschenlängen") zum jeweils aktiven Wegpunkt geführt.
 
-Die verbindliche Schnittstellen-Definition steht in **`docs/technischer-vertrag.md`** — API-Vertrag (Teil A), Client-State-Machine (Teil B), Sensor-Fusion-Algorithmen (Teil C). Dieses Dokument friert die Schnittstellen **vor** dem Feature-Code ein; die dort festgelegten Signaturen, Endpunkte und Verträge sind maßgeblich. Der Stand dieses Repos ist ein **Gerüst**: Dateien und Funktions-/Endpunkt-Signaturen existieren, die Implementierungen sind noch offen (`TODO`).
+Die verbindliche Schnittstellen-Definition steht in **`docs/technischer-vertrag.md`** — API-Vertrag (Teil A), Client-State-Machine (Teil B), Sensor-Fusion-Algorithmen (Teil C). Dieses Dokument friert die Schnittstellen **vor** dem Feature-Code ein; die dort festgelegten Signaturen, Endpunkte und Verträge sind maßgeblich. Alle drei Schichten (Backend-API, Client-Such-Modus, Sensor-Fusion) **und** die Web-UI (`public/index.html` Owner, `public/search.html` Mitsucher) sind implementiert und getestet; ein End-to-End-Browsertest (`e2e/browser.mjs`, benötigt separat installiertes Playwright) fährt den kompletten Flow durch.
 
 ## Befehle
 

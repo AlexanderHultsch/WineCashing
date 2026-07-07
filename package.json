@@ -8,6 +8,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
+    "test:e2e": "node e2e/browser.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "seed:admin": "node scripts/seedAdmin.js"

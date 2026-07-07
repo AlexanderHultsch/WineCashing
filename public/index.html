@@ -1,14 +1,279 @@
 <!DOCTYPE html>
 <html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Wine Caching</title>
-  <link rel="stylesheet" href="css/styles.css" />
-</head>
-<body>
-  <!-- Owner-Oberfläche: Login/Registrierung, Routen & Wegpunkte verwalten, Start/Code. TODO -->
-  <main id="app"></main>
-  <script type="module" src="js/api.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Wine Caching</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <main class="app" id="app"></main>
+
+    <script type="module">
+      import { api } from './js/api.js';
+      import * as geolocation from './js/geolocation.js';
+
+      const app = document.getElementById('app');
+      const S = { screen: 'loading', authMode: 'login', user: null, routes: [], route: null, error: '' };
+
+      const esc = (s) =>
+        String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+      const statusBadge = (status) => `<span class="badge">${status === 'such_modus' ? 'Such-Modus' : 'Erstellung'}</span>`;
+
+      async function guard(fn) {
+        try {
+          S.error = '';
+          await fn();
+        } catch (e) {
+          S.error = e.message || 'Fehler';
+          render();
+        }
+      }
+
+      // --- Datenlader ---
+      async function loadRoutes() {
+        S.routes = await api.listRoutes();
+        S.route = null;
+        S.screen = 'routes';
+        render();
+      }
+      async function openRoute(id) {
+        S.route = await api.getRoute(id);
+        S.screen = 'route';
+        render();
+      }
+      async function refreshRoute() {
+        S.route = await api.getRoute(S.route.id);
+        render();
+      }
+
+      // --- Views ---
+      function viewAuth() {
+        const isLogin = S.authMode === 'login';
+        return `
+          <h1>🍷 Wine Caching</h1>
+          <p class="muted">Melde dich an, um Routen anzulegen und Weinflaschen zu verstecken.</p>
+          <div class="card stack">
+            <div class="row">
+              <button class="${isLogin ? 'primary' : 'ghost'} block" data-action="mode-login">Login</button>
+              <button class="${!isLogin ? 'primary' : 'ghost'} block" data-action="mode-register">Registrieren</button>
+            </div>
+            <div class="field"><label>Benutzername</label><input id="username" autocomplete="username" /></div>
+            <div class="field"><label>Passwort</label><input id="password" type="password" autocomplete="current-password" /></div>
+            <button class="primary block" data-action="submit-auth">${isLogin ? 'Einloggen' : 'Konto erstellen'}</button>
+            ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}
+          </div>`;
+      }
+
+      function viewRoutes() {
+        const items =
+          S.routes.length === 0
+            ? '<p class="muted">Noch keine Routen. Leg deine erste an!</p>'
+            : `<ul class="list">${S.routes
+                .map(
+                  (r) => `<li>
+                    <span><strong>${esc(r.name)}</strong> ${statusBadge(r.status)}</span>
+                    <button class="ghost small" data-action="open" data-id="${r.id}">Öffnen</button>
+                  </li>`,
+                )
+                .join('')}</ul>`;
+        return `
+          <div class="row between">
+            <h1>Meine Routen</h1>
+            <button class="ghost small" data-action="logout">Logout</button>
+          </div>
+          <div class="card stack">${items}</div>
+          <div class="card stack">
+            <div class="field"><label>Neue Route</label><input id="new-route-name" placeholder="z. B. Sommerfest-Runde" /></div>
+            <button class="primary block" data-action="create-route">Route anlegen</button>
+          </div>
+          ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
+      }
+
+      function viewRoute() {
+        const r = S.route;
+        const wps = r.waypoints;
+        const wpList =
+          wps.length === 0
+            ? '<p class="muted">Noch keine Wegpunkte.</p>'
+            : `<ul class="list">${wps
+                .map(
+                  (w, i) => `<li>
+                    <span>
+                      <strong>${i + 1}. ${esc(w.name || 'Wegpunkt')}</strong><br />
+                      <span class="muted">${esc(w.hint_text)}</span><br />
+                      <span class="muted" style="font-size:.78rem">${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}</span>
+                    </span>
+                    <span class="row">
+                      <button class="ghost small" data-action="wp-up" data-id="${w.id}" ${i === 0 ? 'disabled' : ''}>↑</button>
+                      <button class="ghost small" data-action="wp-down" data-id="${w.id}" ${i === wps.length - 1 ? 'disabled' : ''}>↓</button>
+                      <button class="danger small" data-action="wp-del" data-id="${w.id}">✕</button>
+                    </span>
+                  </li>`,
+                )
+                .join('')}</ul>`;
+
+        const code = r.route_code;
+        const codeSection = code
+          ? `<div class="row between wrap">
+               <span class="code">${esc(code)}</span>
+               <span class="badge ${r.route_code_active ? 'on' : 'off'}">${r.route_code_active ? 'aktiv' : 'deaktiviert'}</span>
+             </div>
+             <p class="muted">Mitsucher öffnen <a href="search.html">search.html</a> und geben diesen Code ein.</p>
+             <div class="row wrap">
+               <button class="ghost small" data-action="code-renew">Neuer Code</button>
+               ${r.route_code_active ? '<button class="danger small" data-action="code-deactivate">Deaktivieren</button>' : '<button class="ghost small" data-action="code-create">Reaktivieren</button>'}
+             </div>`
+          : `<p class="muted">Noch kein Code. Erzeuge einen, um Mitsucher einzuladen.</p>
+             <button class="ghost small" data-action="code-create">Code erzeugen</button>`;
+
+        return `
+          <div class="row between">
+            <button class="ghost small" data-action="back">← Zurück</button>
+            ${statusBadge(r.status)}
+          </div>
+          <h1>${esc(r.name)}</h1>
+
+          <div class="card stack">
+            <h3>Wegpunkte</h3>
+            ${wpList}
+          </div>
+
+          <div class="card stack">
+            <h3>Wegpunkt hinzufügen</h3>
+            <div class="field"><label>Name (optional)</label><input id="wp-name" placeholder="z. B. Alte Eiche" /></div>
+            <div class="field"><label>Hinweis</label><input id="wp-hint" placeholder="z. B. hinter dem dritten Stein" /></div>
+            <div class="row">
+              <div class="field" style="flex:1"><label>Breite (lat)</label><input id="wp-lat" inputmode="decimal" /></div>
+              <div class="field" style="flex:1"><label>Länge (lng)</label><input id="wp-lng" inputmode="decimal" /></div>
+            </div>
+            <button class="ghost block" data-action="use-location">📍 Aktuellen Standort verwenden</button>
+            <button class="primary block" data-action="wp-add">Hinzufügen</button>
+          </div>
+
+          <div class="card stack">
+            <h3>Routen-Code</h3>
+            ${codeSection}
+          </div>
+
+          <div class="card stack">
+            <h3>Steuerung</h3>
+            <div class="row wrap">
+              <button class="accent block" data-action="start">Suche starten</button>
+              <button class="ghost block" data-action="reset">Zurücksetzen</button>
+            </div>
+            <button class="danger" data-action="delete-route">Route löschen</button>
+          </div>
+          ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
+      }
+
+      function render() {
+        if (S.screen === 'loading') {
+          app.innerHTML = '<p class="muted">Lädt …</p>';
+          return;
+        }
+        if (S.screen === 'auth') app.innerHTML = viewAuth();
+        else if (S.screen === 'routes') app.innerHTML = viewRoutes();
+        else if (S.screen === 'route') app.innerHTML = viewRoute();
+      }
+
+      // --- Aktionen (Event-Delegation) ---
+      app.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const { action, id } = btn.dataset;
+        const rid = S.route?.id;
+
+        const actions = {
+          'mode-login': () => {
+            S.authMode = 'login';
+            S.error = '';
+            render();
+          },
+          'mode-register': () => {
+            S.authMode = 'register';
+            S.error = '';
+            render();
+          },
+          'submit-auth': () =>
+            guard(async () => {
+              const u = document.getElementById('username').value.trim();
+              const p = document.getElementById('password').value;
+              const res = S.authMode === 'login' ? await api.login(u, p) : await api.register(u, p);
+              S.user = res.user;
+              await loadRoutes();
+            }),
+          logout: () =>
+            guard(async () => {
+              await api.logout();
+              S.user = null;
+              S.screen = 'auth';
+              render();
+            }),
+          'create-route': () =>
+            guard(async () => {
+              const name = document.getElementById('new-route-name').value.trim();
+              if (!name) throw new Error('Bitte einen Namen eingeben.');
+              const route = await api.createRoute(name);
+              await openRoute(route.id);
+            }),
+          open: () => guard(() => openRoute(id)),
+          back: () => guard(loadRoutes),
+          'use-location': () =>
+            guard(async () => {
+              const s = await geolocation.requestLocationPermission();
+              document.getElementById('wp-lat').value = s.lat.toFixed(6);
+              document.getElementById('wp-lng').value = s.lng.toFixed(6);
+            }),
+          'wp-add': () =>
+            guard(async () => {
+              const lat = parseFloat(document.getElementById('wp-lat').value);
+              const lng = parseFloat(document.getElementById('wp-lng').value);
+              const hint_text = document.getElementById('wp-hint').value.trim();
+              const name = document.getElementById('wp-name').value.trim();
+              if (Number.isNaN(lat) || Number.isNaN(lng)) throw new Error('Bitte gültige Koordinaten angeben.');
+              if (!hint_text) throw new Error('Bitte einen Hinweis angeben.');
+              await api.addWaypoint(rid, { lat, lng, hint_text, name: name || undefined });
+              await refreshRoute();
+            }),
+          'wp-del': () => guard(async () => (await api.deleteWaypoint(rid, id), refreshRoute())),
+          'wp-up': () => guard(() => moveWaypoint(id, -1)),
+          'wp-down': () => guard(() => moveWaypoint(id, +1)),
+          'code-create': () => guard(async () => (await api.createCode(rid), refreshRoute())),
+          'code-renew': () => guard(async () => (await api.renewCode(rid), refreshRoute())),
+          'code-deactivate': () => guard(async () => (await api.deactivateCode(rid), refreshRoute())),
+          start: () => guard(async () => (await api.startRoute(rid), refreshRoute())),
+          reset: () => guard(async () => (await api.resetRoute(rid), refreshRoute())),
+          'delete-route': () =>
+            guard(async () => {
+              await api.deleteRoute(rid);
+              await loadRoutes();
+            }),
+        };
+        actions[action]?.();
+      });
+
+      async function moveWaypoint(wpId, delta) {
+        const ids = S.route.waypoints.map((w) => w.id);
+        const i = ids.indexOf(wpId);
+        const j = i + delta;
+        if (j < 0 || j >= ids.length) return;
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+        await api.reorderWaypoints(S.route.id, ids);
+        await refreshRoute();
+      }
+
+      // --- Start ---
+      guard(async () => {
+        try {
+          const me = await api.me();
+          S.user = me.user;
+          await loadRoutes();
+        } catch {
+          S.screen = 'auth';
+          render();
+        }
+      });
+    </script>
+  </body>
 </html>

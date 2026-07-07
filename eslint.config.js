@@ -29,6 +29,18 @@ export default [
     },
   },
   {
+    // E2E: Node-Treiber + im Browser ausgeführte page-Funktionen
+    files: ['e2e/**'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        document: 'readonly',
+        window: 'readonly',
+      },
+    },
+  },
+  {
     // Client / Browser
     files: ['public/**/*.js'],
     languageOptions: {

@@ -15,9 +15,20 @@ Die verbindliche Schnittstellen-Definition steht in [`docs/technischer-vertrag.m
 cp .env.example .env   # Werte anpassen
 npm install
 npm run dev            # Server mit Auto-Reload
-npm test               # node --test
+npm test               # node --test (Unit + HTTP-Integration)
 npm run lint           # ESLint
 npm run seed:admin     # ersten Admin anlegen (ADMIN_USERNAME/ADMIN_PASSWORD aus .env)
+```
+
+Owner-Oberfläche unter `/` (`index.html`), Mitsucher-Suche unter `/search.html`.
+Persistenz und Passwort-Hashing laufen über Node-Bordmittel (`node:sqlite`, `node:crypto`) —
+keine nativen Abhängigkeiten.
+
+**End-to-End-Browsertest** (optional, Playwright separat):
+
+```bash
+npm i -D playwright && npx playwright install chromium
+npm run test:e2e
 ```
 
 ## Struktur
@@ -63,4 +74,6 @@ test/
   backendApi.test.js       End-to-End-API gegen :memory:-SQLite über HTTP
   fixtures/                Trace-Format (README) + synthetische Traces
   helpers/                 Replay-Harness + Backend-Test-Harness
+e2e/
+  browser.mjs              End-to-End im echten Browser (Playwright)
 ```
