@@ -144,8 +144,12 @@ input:focus {
   margin-top: 10px;
 }
 
-/* Buttons */
-button {
+/* Buttons — Klassen sind absichtlich elementunabhängig (auch <a> nutzt sie, z. B. Landing-Kacheln). */
+button,
+a.primary,
+a.accent,
+a.ghost,
+a.danger {
   cursor: pointer;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -153,38 +157,82 @@ button {
   background: var(--surface-2);
   color: var(--text);
   font-weight: 600;
+  font: inherit;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
   transition: filter 0.15s ease;
 }
-button:hover {
+button:hover,
+a.primary:hover,
+a.accent:hover,
+a.ghost:hover,
+a.danger:hover {
   filter: brightness(1.05);
 }
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-button.primary {
+.primary {
   background: var(--wine);
   color: var(--wine-ink);
 }
-button.accent {
+.accent {
   background: var(--accent);
   color: #fff;
 }
-button.ghost {
+.ghost {
   background: transparent;
   border-color: var(--border);
 }
-button.danger {
+.danger {
   background: transparent;
   color: var(--danger);
   border-color: var(--border);
 }
-button.block {
+.block {
   width: 100%;
 }
-button.small {
+.small {
   padding: 6px 10px;
   font-size: 0.85rem;
+}
+
+/* Navigation */
+.topnav {
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.brand {
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* Koordinaten-Eingabe (Grad/Minuten/Sekunden) */
+.dms-row {
+  display: flex;
+  gap: 6px;
+}
+.dms-row input {
+  min-width: 0;
+  flex: 1;
+  text-align: center;
+}
+.dms-row select {
+  flex: 0 0 auto;
+  width: 3.2rem;
+  padding: 11px 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.info {
+  color: var(--accent);
+  font-size: 0.9rem;
 }
 
 /* Badges */

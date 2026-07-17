@@ -52,13 +52,17 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
 
   router.post('/', auth.requireOwner, (req, res) => {
     const name = asNonEmptyString(req.body?.name, 'name', 120);
+    // Code direkt bei Anlage erzeugen (aktiv): Teilen ist ohnehin ein manueller Schritt
+    // des Owners, und "Code erzeugen" als Extra-Klick bringt keinen Sicherheitsgewinn —
+    // wer noch nicht teilen will, nutzt einfach "Deaktivieren".
+    const code = generateUniqueCode(repo, generateCode);
     const route = repo.createRoute({
       id: newId(),
       owner_user_id: req.user.id,
       name,
       status: ROUTE_STATUS.ERSTELLUNG,
-      route_code: null,
-      route_code_active: false,
+      route_code: code,
+      route_code_active: true,
       created_at: now(),
     });
     res.status(201).json(toRoute(route, []));
@@ -88,7 +92,11 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
     res.json({ route: toRoute(route, repo.listWaypoints(route.id)), progress: toProgress(route.id, progress) });
   });
 
-  router.post('/:routeId/reset', owner, (req, res) => {
+  // Zurücksetzen darf auch ein Mitsucher mit gültigem Routen-Code auslösen (nicht nur
+  // der Owner): kontolose Mitsucher haben sonst keine Möglichkeit, ein versehentliches
+  // "alles übersprungen" rückgängig zu machen. Wirkt global für die ganze Route (kein
+  // Konzept von "nur mein Fortschritt") — der Client zeigt vorher eine Warnung an.
+  router.post('/:routeId/reset', auth.requireRouteAccess, (req, res) => {
     repo.resetStatuses(req.route.id, WAYPOINT_STATUS.OFFEN, now());
     const progress = repo.upsertProgress(req.route.id, { started_at: now(), completed_at: null });
     res.json({ progress: toProgress(req.route.id, progress) });

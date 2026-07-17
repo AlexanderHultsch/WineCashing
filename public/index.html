@@ -12,9 +12,19 @@
     <script type="module">
       import { api } from './js/api.js';
       import * as geolocation from './js/geolocation.js';
+      import { dmsToDecimal, decimalToDms, formatDms, parseCoordinateString } from './js/coordinates.js';
 
       const app = document.getElementById('app');
-      const S = { screen: 'loading', authMode: 'login', user: null, routes: [], route: null, error: '' };
+      const S = {
+        screen: 'landing', // landing | auth | routes | route
+        authMode: 'login',
+        user: null,
+        routes: [],
+        route: null,
+        error: '',
+        info: '',
+        wpDraft: null, // überlebt Fehler-Re-Renders beim Wegpunkt-Formular
+      };
 
       const esc = (s) =>
         String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -23,6 +33,7 @@
       async function guard(fn) {
         try {
           S.error = '';
+          S.info = '';
           await fn();
         } catch (e) {
           S.error = e.message || 'Fehler';
@@ -37,6 +48,20 @@
           await refreshRoute();
         });
 
+      // Session prüfen und je nach Ergebnis in die Routenliste oder den Login verzweigen.
+      // Genutzt von der Landing-Kachel UND vom Login-Link in der Navigation.
+      async function enterOwnerArea() {
+        try {
+          const me = await api.me();
+          S.user = me.user;
+          await loadRoutes();
+        } catch {
+          S.user = null;
+          S.screen = 'auth';
+          render();
+        }
+      }
+
       // --- Datenlader ---
       async function loadRoutes() {
         S.routes = await api.listRoutes();
@@ -46,6 +71,7 @@
       }
       async function openRoute(id) {
         S.route = await api.getRoute(id);
+        S.wpDraft = null;
         S.screen = 'route';
         render();
       }
@@ -54,11 +80,76 @@
         render();
       }
 
+      // --- Koordinaten-Formular: DOM <-> Draft ---
+      function readWpDraftFromDom() {
+        const v = (id) => document.getElementById(id)?.value ?? '';
+        return {
+          name: v('wp-name'),
+          hint: v('wp-hint'),
+          paste: v('wp-paste'),
+          latDeg: v('wp-lat-deg'),
+          latMin: v('wp-lat-min'),
+          latSec: v('wp-lat-sec'),
+          latHemi: v('wp-lat-hemi') || 'N',
+          lngDeg: v('wp-lng-deg'),
+          lngMin: v('wp-lng-min'),
+          lngSec: v('wp-lng-sec'),
+          lngHemi: v('wp-lng-hemi') || 'E',
+        };
+      }
+      // Schreibt einen Dezimalgrad-Wert direkt in die DMS-Felder (kein Re-Render -> andere
+      // Formularfelder wie Name/Hinweis bleiben garantiert unangetastet).
+      function fillDmsInputs(prefix, decimalValue, isLatitude) {
+        const { deg, min, sec } = decimalToDms(decimalValue);
+        document.getElementById(`wp-${prefix}-deg`).value = deg;
+        document.getElementById(`wp-${prefix}-min`).value = min;
+        document.getElementById(`wp-${prefix}-sec`).value = sec;
+        document.getElementById(`wp-${prefix}-hemi`).value = isLatitude
+          ? decimalValue < 0
+            ? 'S'
+            : 'N'
+          : decimalValue < 0
+            ? 'W'
+            : 'E';
+      }
+
       // --- Views ---
+      function viewNav() {
+        const right = S.user
+          ? `<span class="muted" style="font-size:.82rem">👤 ${esc(S.user.username)}</span>
+             <button class="ghost small" data-action="logout">Logout</button>`
+          : `<button class="ghost small" data-action="enter-owner">Login</button>`;
+        return `
+          <nav class="topnav row between wrap">
+            <span class="brand" data-action="goto-landing" role="button">🍷 Wine Caching</span>
+            <span class="row">
+              <a class="ghost small" href="search.html" style="text-decoration:none">🔍 Mitsuchen</a>
+              ${right}
+            </span>
+          </nav>`;
+      }
+
+      function viewLanding() {
+        return `
+          <div class="stack center">
+            <h1>🍷 Wine Caching</h1>
+            <p class="muted">Geocaching mit Weinflaschen für den Freundeskreis.</p>
+          </div>
+          <div class="card stack">
+            <button class="primary block" data-action="enter-owner">🍾 Route erstellen (Ersteller)</button>
+            <p class="muted" style="font-size:.82rem">Login/Registrierung nötig — du versteckst Flaschen, legst Wegpunkte an und teilst einen Code.</p>
+          </div>
+          <div class="card stack">
+            <a class="accent block" style="text-decoration:none; text-align:center" href="search.html">🔍 Mitsuchen</a>
+            <p class="muted" style="font-size:.82rem">Kein Konto nötig — gib einfach den Routen-Code ein, den du bekommen hast.</p>
+          </div>
+          ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
+      }
+
       function viewAuth() {
         const isLogin = S.authMode === 'login';
         return `
-          <h1>🍷 Wine Caching</h1>
+          <h1>${isLogin ? 'Login' : 'Registrieren'}</h1>
           <p class="muted">Melde dich an, um Routen anzulegen und Weinflaschen zu verstecken.</p>
           <div class="card stack">
             <div class="row">
@@ -68,6 +159,7 @@
             <div class="field"><label>Benutzername</label><input id="username" autocomplete="username" /></div>
             <div class="field"><label>Passwort</label><input id="password" type="password" autocomplete="current-password" /></div>
             <button class="primary block" data-action="submit-auth">${isLogin ? 'Einloggen' : 'Konto erstellen'}</button>
+            <button class="ghost block" data-action="goto-landing">← Zurück</button>
             ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}
           </div>`;
       }
@@ -85,10 +177,7 @@
                 )
                 .join('')}</ul>`;
         return `
-          <div class="row between">
-            <h1>Meine Routen</h1>
-            <button class="ghost small" data-action="logout">Logout</button>
-          </div>
+          <h1>Meine Routen</h1>
           <div class="card stack">${items}</div>
           <div class="card stack">
             <div class="field"><label>Neue Route</label><input id="new-route-name" placeholder="z. B. Sommerfest-Runde" /></div>
@@ -109,7 +198,8 @@
                     <span>
                       <strong>${i + 1}. ${esc(w.name || 'Wegpunkt')}</strong><br />
                       <span class="muted">${esc(w.hint_text)}</span><br />
-                      <span class="muted" style="font-size:.78rem">${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}</span>
+                      <span class="muted" style="font-size:.78rem">${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}
+                        (${formatDms(w.lat, true)} ${formatDms(w.lng, false)})</span>
                     </span>
                     <span class="row">
                       <button class="ghost small" data-action="wp-up" data-id="${w.id}" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -126,13 +216,15 @@
                <span class="code">${esc(code)}</span>
                <span class="badge ${r.route_code_active ? 'on' : 'off'}">${r.route_code_active ? 'aktiv' : 'deaktiviert'}</span>
              </div>
-             <p class="muted">Mitsucher öffnen <a href="search.html">search.html</a> und geben diesen Code ein.</p>
+             <p class="muted">Mitsucher öffnen <a href="search.html">search.html</a> und geben diesen Code ein (Groß-/Kleinschreibung egal).</p>
              <div class="row wrap">
                <button class="ghost small" data-action="code-renew">Neuer Code</button>
                ${r.route_code_active ? '<button class="danger small" data-action="code-deactivate">Deaktivieren</button>' : '<button class="ghost small" data-action="code-create">Reaktivieren</button>'}
              </div>`
-          : `<p class="muted">Noch kein Code. Erzeuge einen, um Mitsucher einzuladen.</p>
+          : `<p class="muted">Noch kein Code (ältere Route). Erzeuge einen, um Mitsucher einzuladen.</p>
              <button class="ghost small" data-action="code-create">Code erzeugen</button>`;
+
+        const d = S.wpDraft || {};
 
         return `
           <div class="row between">
@@ -148,12 +240,49 @@
 
           <div class="card stack">
             <h3>Wegpunkt hinzufügen</h3>
-            <div class="field"><label>Name (optional)</label><input id="wp-name" placeholder="z. B. Alte Eiche" /></div>
-            <div class="field"><label>Hinweis</label><input id="wp-hint" placeholder="z. B. hinter dem dritten Stein" /></div>
-            <div class="row">
-              <div class="field" style="flex:1"><label>Breite (lat)</label><input id="wp-lat" inputmode="decimal" /></div>
-              <div class="field" style="flex:1"><label>Länge (lng)</label><input id="wp-lng" inputmode="decimal" /></div>
+            <div class="field"><label>Name (optional)</label><input id="wp-name" placeholder="z. B. Alte Eiche" value="${esc(d.name)}" /></div>
+            <div class="field"><label>Hinweis</label><input id="wp-hint" placeholder="z. B. hinter dem dritten Stein" value="${esc(d.hint)}" /></div>
+
+            <div class="field">
+              <label>Koordinaten aus Google Maps einfügen (optional)</label>
+              <input id="wp-paste" placeholder="z. B. 48°59'58.0&quot;N 8°29'17.4&quot;E oder 48.9994, 8.4881" value="${esc(d.paste)}" />
+              <button type="button" class="ghost small" data-action="paste-coords" style="margin-top:6px">Übernehmen</button>
             </div>
+
+            <p class="muted" style="font-size:.82rem">
+              <strong>Breite</strong> (Lat) = Nord/Süd-Position, <strong>Länge</strong> (Lng) = Ost/West-Position.
+              In Google Maps: auf den Punkt tippen/rechtsklicken → die angezeigten Koordinaten
+              (z. B. <code>48°59'58.0"N 8°29'17.4"E</code>) kopieren und oben einfügen — oder unten
+              Grad/Minuten/Sekunden von Hand eingeben.
+            </p>
+
+            <div class="row wrap">
+              <div class="field" style="flex:1; min-width:220px">
+                <label>Breite (Nord/Süd)</label>
+                <div class="dms-row">
+                  <input id="wp-lat-deg" type="number" min="0" max="90" placeholder="Grad °" value="${esc(d.latDeg)}" />
+                  <input id="wp-lat-min" type="number" min="0" max="59" placeholder="Min ′" value="${esc(d.latMin)}" />
+                  <input id="wp-lat-sec" type="number" min="0" max="59.9" step="0.1" placeholder="Sek ″" value="${esc(d.latSec)}" />
+                  <select id="wp-lat-hemi">
+                    <option value="N" ${d.latHemi !== 'S' ? 'selected' : ''}>N</option>
+                    <option value="S" ${d.latHemi === 'S' ? 'selected' : ''}>S</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field" style="flex:1; min-width:220px">
+                <label>Länge (Ost/West)</label>
+                <div class="dms-row">
+                  <input id="wp-lng-deg" type="number" min="0" max="180" placeholder="Grad °" value="${esc(d.lngDeg)}" />
+                  <input id="wp-lng-min" type="number" min="0" max="59" placeholder="Min ′" value="${esc(d.lngMin)}" />
+                  <input id="wp-lng-sec" type="number" min="0" max="59.9" step="0.1" placeholder="Sek ″" value="${esc(d.lngSec)}" />
+                  <select id="wp-lng-hemi">
+                    <option value="E" ${d.lngHemi !== 'W' ? 'selected' : ''}>E</option>
+                    <option value="W" ${d.lngHemi === 'W' ? 'selected' : ''}>W</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
             <button class="ghost block" data-action="use-location">📍 Aktuellen Standort verwenden</button>
             <button class="primary block" data-action="wp-add">Hinzufügen</button>
           </div>
@@ -171,6 +300,7 @@
             </div>
             <button class="danger" data-action="delete-route">Route löschen</button>
           </div>
+          ${S.info ? `<p class="info">${esc(S.info)}</p>` : ''}
           ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
       }
 
@@ -179,9 +309,12 @@
           app.innerHTML = '<p class="muted">Lädt …</p>';
           return;
         }
-        if (S.screen === 'auth') app.innerHTML = viewAuth();
-        else if (S.screen === 'routes') app.innerHTML = viewRoutes();
-        else if (S.screen === 'route') app.innerHTML = viewRoute();
+        let body = '';
+        if (S.screen === 'landing') body = viewLanding();
+        else if (S.screen === 'auth') body = viewAuth();
+        else if (S.screen === 'routes') body = viewRoutes();
+        else if (S.screen === 'route') body = viewRoute();
+        app.innerHTML = viewNav() + body;
       }
 
       // --- Aktionen (Event-Delegation) ---
@@ -192,6 +325,12 @@
         const rid = S.route?.id;
 
         const actions = {
+          'goto-landing': () => {
+            S.error = '';
+            S.screen = 'landing';
+            render();
+          },
+          'enter-owner': () => guard(enterOwnerArea),
           'mode-login': () => {
             S.authMode = 'login';
             S.error = '';
@@ -214,7 +353,7 @@
             guard(async () => {
               await api.logout();
               S.user = null;
-              S.screen = 'auth';
+              S.screen = 'landing';
               render();
             }),
           'create-route': () =>
@@ -228,19 +367,48 @@
           back: () => guard(loadRoutes),
           'use-location': () =>
             guard(async () => {
+              S.wpDraft = readWpDraftFromDom();
               const s = await geolocation.requestLocationPermission();
-              document.getElementById('wp-lat').value = s.lat.toFixed(6);
-              document.getElementById('wp-lng').value = s.lng.toFixed(6);
+              fillDmsInputs('lat', s.lat, true);
+              fillDmsInputs('lng', s.lng, false);
+            }),
+          'paste-coords': () =>
+            guard(async () => {
+              S.wpDraft = readWpDraftFromDom();
+              const parsed = parseCoordinateString(S.wpDraft.paste);
+              if (!parsed) {
+                throw new Error(
+                  'Konnte die Koordinaten nicht lesen. Beispiel: 48°59\'58.0"N 8°29\'17.4"E oder 48.9994, 8.4881',
+                );
+              }
+              fillDmsInputs('lat', parsed.lat, true);
+              fillDmsInputs('lng', parsed.lng, false);
             }),
           'wp-add': () =>
             guard(async () => {
-              const lat = parseFloat(document.getElementById('wp-lat').value);
-              const lng = parseFloat(document.getElementById('wp-lng').value);
-              const hint_text = document.getElementById('wp-hint').value.trim();
-              const name = document.getElementById('wp-name').value.trim();
-              if (Number.isNaN(lat) || Number.isNaN(lng)) throw new Error('Bitte gültige Koordinaten angeben.');
+              // Zuerst sichern: bei einem Fehler bleiben alle eingegebenen Werte erhalten
+              // (werden erst nach erfolgreichem Anlegen wieder geleert).
+              S.wpDraft = readWpDraftFromDom();
+              const d = S.wpDraft;
+              const hint_text = d.hint.trim();
+              const name = d.name.trim();
               if (!hint_text) throw new Error('Bitte einen Hinweis angeben.');
+
+              const parts = [d.latDeg, d.latMin, d.latSec, d.lngDeg, d.lngMin, d.lngSec].map((v) => parseFloat(v));
+              if (parts.some(Number.isNaN)) {
+                throw new Error(
+                  'Bitte Grad/Minuten/Sekunden vollständig eingeben — oder Koordinaten oben einfügen und "Übernehmen" klicken.',
+                );
+              }
+              const [latDeg, latMin, latSec, lngDeg, lngMin, lngSec] = parts;
+              const lat = dmsToDecimal(latDeg, latMin, latSec, d.latHemi);
+              const lng = dmsToDecimal(lngDeg, lngMin, lngSec, d.lngHemi);
+              if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+                throw new Error('Koordinaten außerhalb des gültigen Bereichs.');
+              }
+
               await api.addWaypoint(rid, { lat, lng, hint_text, name: name || undefined });
+              S.wpDraft = null; // nur bei Erfolg leeren
               await refreshRoute();
             }),
           'wp-del': () => call(() => api.deleteWaypoint(rid, id)),
@@ -249,7 +417,12 @@
           'code-create': () => call(() => api.createCode(rid)),
           'code-renew': () => call(() => api.renewCode(rid)),
           'code-deactivate': () => call(() => api.deactivateCode(rid)),
-          start: () => call(() => api.startRoute(rid)),
+          start: () =>
+            guard(async () => {
+              await api.startRoute(rid);
+              S.info = 'Route gestartet — Mitsucher können jetzt mit dem Code beitreten.';
+              await refreshRoute();
+            }),
           reset: () => {
             if (confirm('Alle Funde dieser Route zurücksetzen?')) call(() => api.resetRoute(rid));
           },
@@ -274,17 +447,19 @@
         await refreshRoute();
       }
 
-      // --- Start ---
-      guard(async () => {
-        try {
-          const me = await api.me();
-          S.user = me.user;
-          await loadRoutes();
-        } catch {
-          S.screen = 'auth';
-          render();
-        }
+      // Uncaught-Fehler sichtbar machen statt stillschweigend zu verschlucken
+      // (macht "Button tut nichts"-artige Bugs ohne Devtools diagnostizierbar).
+      window.addEventListener('error', (e) => {
+        S.error = e.error?.message || e.message || 'Unerwarteter Fehler.';
+        render();
       });
+      window.addEventListener('unhandledrejection', (e) => {
+        S.error = e.reason?.message || String(e.reason ?? 'Unerwarteter Fehler.');
+        render();
+      });
+
+      // --- Start: Landing-Screen zuerst (Vertrag: Ersteller vs. Mitsucher aktiv wählen) ---
+      render();
     </script>
   </body>
 </html>

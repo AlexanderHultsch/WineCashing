@@ -24,10 +24,11 @@ Zwei getrennte Mechanismen:
 | Endpoint-Gruppe | Owner-Session | Gültiger `X-Route-Code` | Anonym |
 |---|---|---|---|
 | Auth (Register/Login) | — | — | ✅ |
-| Route-Verwaltung, Wegpunkt-CRUD, Start, Reset, Code-Verwaltung | ✅ (nur eigene Route) | ❌ | ❌ |
+| Route-Verwaltung, Wegpunkt-CRUD, Start, Code-Verwaltung | ✅ (nur eigene Route) | ❌ | ❌ |
 | Beitritt (`/join`) | — | — | ✅ (mit Code im Body) |
 | Routen-/Fortschritts-Zustand lesen (Polling) | ✅ (eigene Route) | ✅ | ❌ |
 | Fund/Skip melden | ✅ (eigene Route) | ✅ | ❌ |
+| Reset (Wegpunkte → `offen`) | ✅ (eigene Route) | ✅ | ❌ |
 | Admin-Passwort-Reset | ✅ (nur `is_admin`) | ❌ | ❌ |
 
 **Wichtige Design-Entscheidung — Hinweistexte:** `hint_text` wird im Routen-Payload **an den Client ausgeliefert** (nötig für die Offline-Hinweis-Freischaltung, Spec 10). Das „verborgen bis Annäherung" (Spec 6.4) ist eine **UI-Regel auf dem Client**, keine Server-Geheimhaltung. Für den privaten Freundeskreis ist das akzeptabel und ausdrücklich so gewollt.
@@ -65,7 +66,7 @@ Passwörter serverseitig mit bcrypt/argon2 hashen. Login/Register rate-limitiert
 | PATCH | `/api/routes/:routeId` | `{name?}` | `200 {Route}` | |
 | DELETE | `/api/routes/:routeId` | — | `204` | |
 | POST | `/api/routes/:routeId/start` | — | `200 {Route, RouteProgress}` | Guard: ≥ 1 Wegpunkt, sonst `409 NO_WAYPOINTS`. Setzt `status="such_modus"`, `started_at` (Spec 4.3) |
-| POST | `/api/routes/:routeId/reset` | — | `200 {RouteProgress}` | Alle Wegpunkt-Status → `offen`, neues `started_at`, `completed_at=null` (Spec 4.5) |
+| POST | `/api/routes/:routeId/reset` | Owner **oder** `X-Route-Code` | `200 {RouteProgress}` | Alle Wegpunkt-Status → `offen`, neues `started_at`, `completed_at=null` (Spec 4.5) |
 
 ### Wegpunkte
 | Methode | Pfad | Body | Erfolg |
@@ -80,11 +81,13 @@ Passwörter serverseitig mit bcrypt/argon2 hashen. Login/Register rate-limitiert
 ### Routen-Code (Spec 5)
 | Methode | Pfad | Erfolg | Wirkung |
 |---|---|---|---|
-| POST | `/api/routes/:routeId/code` | `200 {route_code, active:true}` | Erzeugt Code, falls keiner existiert; sonst gibt aktuellen zurück |
+| POST | `/api/routes/:routeId/code` | `200 {route_code, active:true}` | Erzeugt Code, falls keiner existiert (Legacy-Routen); sonst gibt aktuellen zurück |
 | POST | `/api/routes/:routeId/code/renew` | `200 {route_code, active:true}` | Neuer Code; **alter wird ungültig → alle Mitsucher ausgesperrt** |
 | POST | `/api/routes/:routeId/code/deactivate` | `200 {active:false}` | `route_code_active=false`; **alle Mitsucher ausgesperrt** |
 
-Code-Format: 8 Zeichen aus `[A-HJ-NP-Za-hj-np-z2-9]` (ohne `0 O 1 l I`), Bindestrich nach Position 4 (z. B. `Wc7f-K2pq`).
+**Amendment (Nutzer-Feedback):** `POST /api/routes` erzeugt den Code jetzt **direkt bei Anlage** (aktiv) — der manuelle Zusatzklick brachte keinen Sicherheitsgewinn, da Teilen ohnehin ein bewusster Owner-Schritt bleibt. Wer noch nicht teilen will, nutzt `code/deactivate`. `POST .../code` bleibt als idempotenter Endpunkt für Alt-Routen ohne Code erhalten.
+
+Code-Format: 8 Zeichen aus dem GROSSBUCHSTABEN-Alphabet `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (ohne verwechselbare Zeichen `0 1 I L O`), Bindestrich nach Position 4 (z. B. `WC7F-K2PQ`). Anzeige immer in Großschreibung; die Eingabe (`X-Route-Code`, `/join`-Body) ist **case-insensitiv** — der Server normalisiert vor jedem Vergleich.
 
 ## A.5 Beitritt & Zustand (`routes/progress.js`, Spec 6.5, 6.9)
 
@@ -125,7 +128,7 @@ Ist der Code ungültig/deaktiviert → `403 ROUTE_ACCESS_REVOKED`. Ist die Route
 **Server-Regel (verbindlich, idempotent & monoton):**
 - Erlaubte Übergänge: `offen → gefunden`, `offen → übersprungen`.
 - `gefunden` und `übersprungen` sind **terminal**: ein erneutes `found`/`skip` auf einen bereits terminalen Wegpunkt ist ein **No-Op** und liefert `200` mit dem aktuellen Status zurück (kein Fehler). Damit sind verspätete Offline-Aktionen unschädlich (Spec 10).
-- Nur `POST /reset` (Owner) darf `terminal → offen` zurücksetzen.
+- `POST /reset` darf `terminal → offen` zurücksetzen — Owner **oder** gültiger `X-Route-Code` (Amendment, Nutzer-Feedback: kontolose Mitsucher brauchen einen Weg, ein versehentliches „alles übersprungen" selbst zu beheben). Wirkt **global für die ganze Route**, nicht pro Nutzer — es gibt kein Konzept von individuellem Fortschritt. Der Client zeigt vor dem Aufruf eine Warnung.
 - Nach jedem erfolgreichen Statuswechsel prüft der Server: Sind **alle** Wegpunkte terminal → `completed_at` setzen (falls noch null). Reset leert es wieder.
 
 Optionaler Body `{client_ts}` nur fürs Logging; der Server verlässt sich nie auf Client-Zeit für die Zustandslogik.

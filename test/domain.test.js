@@ -68,8 +68,9 @@ test('Passwort: hash/verify Roundtrip, falsche/verfälschte schlagen fehl', () =
 });
 
 // --- Routen-Code ---
-test('Alphabet schließt verwechselbare Zeichen aus (0 O 1 l I)', () => {
-  for (const ch of ['0', 'O', '1', 'l', 'I']) {
+test('Alphabet ist GROSS und schließt verwechselbare Zeichen aus (0 1 I L O)', () => {
+  assert.equal(CODE_ALPHABET, CODE_ALPHABET.toUpperCase());
+  for (const ch of ['0', '1', 'I', 'L', 'O']) {
     assert.ok(!CODE_ALPHABET.includes(ch), `Alphabet enthält ${ch}`);
   }
 });
@@ -78,13 +79,19 @@ test('generateRouteCode: gültiges Format mit Bindestrich nach Position 4', () =
   const code = generateRouteCode();
   assert.equal(code.length, 9);
   assert.equal(code[4], '-');
+  assert.equal(code, code.toUpperCase());
   assert.ok(isValidRouteCodeFormat(code));
 });
 
-test('formatRouteCode & isValidRouteCodeFormat', () => {
-  assert.equal(formatRouteCode('Wc7fK2pq'), 'Wc7f-K2pq');
-  assert.equal(formatRouteCode('Wc7f-K2pq'), 'Wc7f-K2pq');
+test('formatRouteCode: normalisiert auf GROSS, egal welche Eingabe-Schreibweise', () => {
+  assert.equal(formatRouteCode('Wc7fK2pq'), 'WC7F-K2PQ');
+  assert.equal(formatRouteCode('wc7f-k2pq'), 'WC7F-K2PQ');
+  assert.equal(formatRouteCode('WC7F-K2PQ'), 'WC7F-K2PQ');
+});
+
+test('isValidRouteCodeFormat: case-insensitiv, lehnt verbotene Zeichen ab', () => {
   assert.equal(isValidRouteCodeFormat('Wc7f-K2pq'), true);
+  assert.equal(isValidRouteCodeFormat('WC7F-K2PQ'), true);
   assert.equal(isValidRouteCodeFormat('Wc7f-K2p0'), false); // 0 nicht im Alphabet
   assert.equal(isValidRouteCodeFormat('short'), false);
 });

@@ -191,6 +191,52 @@ test('reset: setzt Wegpunkte zurück auf offen', async () => {
   }
 });
 
+test('reset: auch ein Mitsucher mit gültigem Code darf zurücksetzen (nicht nur Owner)', async () => {
+  const be = await bootBackend();
+  try {
+    const c = await withOwner(be);
+    const created = await c.post('/api/routes', { name: 'R' });
+    const routeId = created.body.id;
+    // Code existiert schon direkt nach Anlage (Auto-Generierung).
+    assert.ok(created.body.route_code);
+    assert.equal(created.body.route_code_active, true);
+    const code = created.body.route_code;
+
+    const w1 = (await c.post(`/api/routes/${routeId}/waypoints`, { lat: 48, lng: 11, hint_text: 'h' })).body.id;
+    await c.post(`/api/routes/${routeId}/start`);
+    await c.post(`/api/routes/${routeId}/waypoints/${w1}/skip`);
+
+    let r = await c.get(`/api/routes/${routeId}/state`);
+    assert.equal(r.body.waypoint_status[0].status, 'übersprungen');
+    assert.ok(r.body.progress.completed_at);
+
+    // Mitsucher (kontolos, nur per Code) löst den Reset aus.
+    const searcher = createClient(be.url);
+    const codeHeader = { 'X-Route-Code': code };
+    r = await searcher.post(`/api/routes/${routeId}/reset`, {}, codeHeader);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.progress.completed_at, null);
+
+    r = await searcher.get(`/api/routes/${routeId}/state`, codeHeader);
+    assert.equal(r.body.waypoint_status[0].status, 'offen');
+  } finally {
+    await be.close();
+  }
+});
+
+test('reset: ohne Login und ohne Code -> 401', async () => {
+  const be = await bootBackend();
+  try {
+    const c = await withOwner(be);
+    const routeId = (await c.post('/api/routes', { name: 'R' })).body.id;
+    const anon = createClient(be.url);
+    const r = await anon.post(`/api/routes/${routeId}/reset`);
+    assert.equal(r.status, 401);
+  } finally {
+    await be.close();
+  }
+});
+
 test('Owner-Isolation: fremde Route -> 404', async () => {
   const be = await bootBackend();
   try {

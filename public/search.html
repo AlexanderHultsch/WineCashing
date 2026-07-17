@@ -8,14 +8,22 @@
   </head>
   <body>
     <main class="app" id="app">
+      <nav class="topnav row between">
+        <span class="brand">🍷 Wine Caching</span>
+        <span class="row">
+          <button id="btn-nav-leave" class="ghost small hidden">Verlassen</button>
+          <a class="ghost small" href="index.html" style="text-decoration:none">Route erstellen / Login</a>
+        </span>
+      </nav>
+
       <!-- Beitritt -->
       <section id="screen-join" class="stack">
         <h1>🍷 Wine Caching</h1>
-        <p class="muted">Gib den Routen-Code ein, den du bekommen hast.</p>
+        <p class="muted">Gib den Routen-Code ein, den du bekommen hast. Kein Konto nötig.</p>
         <div class="card stack">
           <div class="field">
             <label for="code">Routen-Code</label>
-            <input id="code" placeholder="z. B. Wc7f-K2pq" autocapitalize="off" autocomplete="off" spellcheck="false" />
+            <input id="code" placeholder="Z. B. WC7F-K2PQ" autocapitalize="characters" autocomplete="off" spellcheck="false" />
           </div>
           <button id="btn-join" class="primary block">Beitreten</button>
           <p id="join-error" class="error"></p>
@@ -57,7 +65,9 @@
       <section id="screen-completed" class="stack center hidden">
         <h1>🎉 Geschafft!</h1>
         <p class="muted">Alle Wegpunkte dieser Route sind erledigt. Prost!</p>
-        <button id="btn-leave2" class="ghost">Neue Route</button>
+        <button id="btn-restart" class="accent">🔁 Route neu starten</button>
+        <p class="muted" style="font-size:.78rem">Setzt alle Wegpunkte für ALLE Mitsucher dieser Route zurück auf "offen" — z. B. falls aus Versehen übersprungen wurde.</p>
+        <button id="btn-leave2" class="ghost">🚪 Verlassen</button>
       </section>
 
       <!-- Nicht verfügbar -->
@@ -86,9 +96,13 @@
 
       function show(id) {
         for (const s of allScreens) $(s).classList.toggle('hidden', s !== id);
+        $('btn-nav-leave').classList.toggle('hidden', id === 'screen-join');
       }
 
       let controller = null;
+      let currentRouteId = null;
+
+      const meterFormat = (m) => Math.round(m).toLocaleString('de-DE');
 
       function render(vm) {
         if (!vm) return;
@@ -98,9 +112,11 @@
           $('wp-name').textContent = vm.activeWaypoint?.name || 'Nächster Wegpunkt';
           if (vm.rotation != null) $('needle').style.transform = `rotate(${vm.rotation}deg)`;
 
-          const bottles = vm.bottles == null ? '–' : Math.max(0, Math.round(vm.bottles)).toLocaleString('de-DE');
+          // Flaschenlängen sind eine grobe Orientierung, keine Präzisionsangabe -> aufrunden
+          // (Vertrag 6.1: keine Scheinpräzision) statt kaufmännisch runden.
+          const bottles = vm.bottles == null ? '–' : Math.max(0, Math.ceil(vm.bottles)).toLocaleString('de-DE');
           $('dist-bottles').textContent = bottles;
-          $('dist-meters').textContent = vm.distanceMeters == null ? 'Suche Signal …' : `≈ ${vm.distanceMeters.toFixed(0)} m Luftlinie`;
+          $('dist-meters').textContent = vm.distanceMeters == null ? 'Suche Signal …' : `≈ ${meterFormat(vm.distanceMeters)} m Luftlinie`;
 
           const hintEl = $('hint');
           if (vm.hintRevealed && vm.activeWaypoint?.hint_text) {
@@ -138,7 +154,8 @@
         try {
           const state0 = await api.join(code.trim());
           setRouteCode(code.trim());
-          controller = buildController(state0.route.id);
+          currentRouteId = state0.route.id;
+          controller = buildController(currentRouteId);
           await controller.start();
         } catch (err) {
           if (err.status) {
@@ -155,14 +172,33 @@
       function leave(message) {
         controller?.stop();
         controller = null;
+        currentRouteId = null;
         clearRouteCode();
         show('screen-join');
         $('join-error').textContent = message || '';
         $('code').value = '';
       }
 
+      async function restartRoute() {
+        const ok = confirm(
+          'Das setzt ALLE Wegpunkte dieser Route für ALLE Mitsucher zurück auf "offen" — nicht nur für dich. Fortfahren?',
+        );
+        if (!ok || !currentRouteId) return;
+        try {
+          await api.resetRoute(currentRouteId);
+          await controller?.reset();
+        } catch (err) {
+          leave('Zurücksetzen fehlgeschlagen: ' + (err.message || 'Fehler'));
+        }
+      }
+
       // Buttons
       $('btn-join').addEventListener('click', () => {
+        // So früh wie möglich in der Klick-Geste anfragen: iOS verlangt, dass
+        // DeviceOrientationEvent.requestPermission() direkt aus einer Nutzer-Geste kommt.
+        // Nach einem await (z. B. dem Join-Request) zählt der Klick dafür ggf. nicht mehr,
+        // wodurch die Anfrage sonst lautlos fehlschlägt und sich der Kompass nie dreht.
+        sensors.requestOrientationPermission?.();
         const code = $('code').value;
         if (!code.trim()) {
           $('join-error').textContent = 'Bitte Code eingeben.';
@@ -171,17 +207,31 @@
         $('join-error').textContent = '';
         joinAndStart(code);
       });
+      $('code').addEventListener('input', () => {
+        const pos = $('code').selectionStart;
+        $('code').value = $('code').value.toUpperCase();
+        $('code').setSelectionRange(pos, pos);
+      });
       $('code').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') $('btn-join').click();
       });
       $('btn-permission').addEventListener('click', () => controller?.start());
       $('btn-found').addEventListener('click', () => controller?.reportFound());
       $('btn-skip').addEventListener('click', () => controller?.reportSkip());
-      for (const id of ['btn-leave', 'btn-leave2', 'btn-leave3']) $(id).addEventListener('click', () => leave());
+      $('btn-restart').addEventListener('click', restartRoute);
+      for (const id of ['btn-leave', 'btn-leave2', 'btn-leave3', 'btn-nav-leave']) $(id).addEventListener('click', () => leave());
 
       // Verbindungsstatus an den Controller melden.
       window.addEventListener('online', () => controller?.setOffline(false));
       window.addEventListener('offline', () => controller?.setOffline(true));
+
+      // Uncaught-Fehler sichtbar machen statt stillschweigend zu verschlucken.
+      window.addEventListener('error', (e) => {
+        $('join-error').textContent = e.error?.message || e.message || 'Unerwarteter Fehler.';
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        $('join-error').textContent = e.reason?.message || String(e.reason ?? 'Unerwarteter Fehler.');
+      });
 
       // Auto-Resume, wenn schon ein Code gespeichert ist.
       const saved = getRouteCode();
