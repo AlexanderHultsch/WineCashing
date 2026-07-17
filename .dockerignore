@@ -1,0 +1,16 @@
+.git
+node_modules
+data
+*.sqlite
+*.sqlite3
+test
+e2e
+docs
+.github
+.env
+.env.*
+eslint.config.js
+.prettierrc.json
+.prettierignore
+.editorconfig
+npm-debug.log

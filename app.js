@@ -22,7 +22,13 @@ export function createApp(deps) {
   const {
     repo,
     sessionSecret = process.env.SESSION_SECRET || 'wine-caching-dev-secret',
-    secureCookie = process.env.NODE_ENV === 'production',
+    // Cookie-Secure NICHT an NODE_ENV koppeln: hinter einem Reverse Proxy
+    // (Cloudflare Tunnel -> Caddy -> App) ist der App-Hop HTTP, secure:true würde
+    // das Login-Cookie verhindern. Extern erzwingt Cloudflare ohnehin HTTPS.
+    // Nur einschalten (SECURE_COOKIES=true), wenn die App selbst über HTTPS läuft.
+    secureCookie = process.env.SECURE_COOKIES === 'true',
+    // Anzahl vertrauenswürdiger Proxy-Hops für req.ip (Rate-Limit) / req.protocol.
+    trustProxy = process.env.TRUST_PROXY,
     hashPassword = defaultHash,
     verifyPassword = defaultVerify,
     generateCode = defaultGenerateCode,
@@ -32,10 +38,14 @@ export function createApp(deps) {
   } = deps;
 
   if (!repo) throw new Error('createApp: repo fehlt');
+  if (sessionSecret === 'wine-caching-dev-secret' && process.env.NODE_ENV === 'production') {
+    console.warn('WARN: SESSION_SECRET nicht gesetzt — Standardwert in Produktion ist unsicher.');
+  }
 
   const auth = createAuth(repo);
   const app = express();
-  app.set('trust proxy', 1);
+  // Zahl (Hops) oder Ausdruck (z. B. Subnetz) zulassen; Default 1.
+  app.set('trust proxy', trustProxy === undefined ? 1 : Number.isNaN(Number(trustProxy)) ? trustProxy : Number(trustProxy));
   app.use(express.json());
   app.use(
     session({
