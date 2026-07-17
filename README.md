@@ -6,8 +6,9 @@ bei und werden im Such-Modus per Kompass und Distanz ("Flaschenlängen") geführ
 
 ## Status
 
-Gerüst. Datei- und Schnittstellenstruktur stehen (siehe unten); Implementierungen sind `TODO`.
-Die verbindliche Schnittstellen-Definition steht in [`docs/technischer-vertrag.md`](docs/technischer-vertrag.md).
+Vollständig implementiert und getestet (Backend-API, Such-Modus-State-Machine, Sensor-Fusion,
+Owner- und Mitsucher-UI). Die verbindliche Schnittstellen-Definition steht in
+[`docs/technischer-vertrag.md`](docs/technischer-vertrag.md).
 
 ## Entwicklung
 
@@ -31,11 +32,48 @@ npm i -D playwright && npx playwright install chromium
 npm run test:e2e
 ```
 
+## Deployment als Container (Pi-Server)
+
+Die App ist als **dynamische App** für das
+[PiMultiServiceServer-Konstrukt](https://github.com/AlexanderHultsch/PiMultiServiceServer)
+paketiert: eigener Container hinter Caddy, erreichbar als `winecashing.<DOMAIN>`.
+
+**Umgebungsvariablen (Vertrag):** `PORT` (Default 3000), `DB_PATH` (SQLite-Datei,
+Default `./data/winecashing.db`, im Container `/data/winecashing.db`),
+`SESSION_SECRET` (Pflicht in Produktion), `ADMIN_USERNAME`/`ADMIN_PASSWORD`
+(einmaliger Seed). Vorlage: `.env.example` — echte `.env` niemals committen.
+
+**Standalone bauen und starten:**
+
+```bash
+docker build -t winecashing .
+docker run -d --name winecashing \
+  -p 3000:3000 \
+  -v "$PWD/data:/data" \
+  --env-file .env \
+  winecashing
+
+# Einmalig den ersten Admin anlegen (liest ADMIN_USERNAME/ADMIN_PASSWORD):
+docker exec -u node winecashing npm run seed:admin
+```
+
+Hinweis: Der Container startet kurz als root, übereignet das gemountete
+`/data`-Verzeichnis dem `node`-Nutzer (sonst scheitert SQLite am root-eigenen
+Bind-Mount) und wechselt dann per `su-exec` zu `node` — der App-Prozess läuft
+unprivilegiert. Deshalb beim `exec` `-u node` verwenden, damit die DB-Dateien
+`node` gehören bleiben.
+
+Im Pi-Server-Konstrukt übernimmt `docker compose` Build/Start (Service
+`winecashing`, Routing über Caddy); Updates dort per
+`bash scripts/deploy-site.sh winecashing`.
+
 ## Struktur
 
 ```
 server.js                  Einstiegspunkt: DB öffnen, Repo + App verdrahten, lauschen
 app.js                     Express-App-Factory (Static, Router, Session, Fehler-Umschlag)
+Dockerfile                 Container-Build (node:24-alpine, npm ci --omit=dev)
+docker-entrypoint.sh       chown /data an node, dann Privilegien abgeben (su-exec)
 routes/
   auth.js                  Register/Login/Logout/me, Admin-Reset          (Vertrag A.3)
   routes.js                Routen- & Wegpunkt-CRUD, Start/Reset, Code       (Vertrag A.4)

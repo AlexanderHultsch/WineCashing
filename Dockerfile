@@ -1,8 +1,8 @@
 # Wine Caching als dynamische App im PiMultiServiceServer-Konstrukt.
-# Node 22 LTS (Support bis ~2027) auf Alpine, arm64-tauglich für den Pi.
-# Node 22 liefert node:sqlite und node:crypto eingebaut -> keine nativen
+# Node 24 auf Alpine (wie apps/app-example der Infrastruktur), arm64-tauglich
+# für den Pi 4. node:sqlite und node:crypto sind eingebaut -> keine nativen
 # Abhängigkeiten, sauberer arm64-Build ohne Compiler.
-FROM node:22-alpine
+FROM node:24-alpine
 
 # su-exec: im Entrypoint kurz als root das Datenverzeichnis übereignen,
 # dann als unprivilegierter "node"-Nutzer weiterlaufen.
@@ -10,7 +10,7 @@ RUN apk add --no-cache su-exec
 
 WORKDIR /app
 ENV NODE_ENV=production
-ENV WINE_DB_PATH=/data/wine.sqlite
+ENV DB_PATH=/data/winecashing.db
 
 # Erst Manifeste (Layer-Cache), dann nur Produktionsabhängigkeiten (express).
 COPY package.json package-lock.json ./

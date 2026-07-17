@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export const DB_PATH = process.env.WINE_DB_PATH || join(__dirname, '..', 'data', 'wine.sqlite');
+export const DB_PATH = process.env.DB_PATH || join(__dirname, '..', 'data', 'winecashing.db');
 const SCHEMA_SQL = () => readFileSync(join(__dirname, 'schema.sql'), 'utf8');
 
 // Öffnet die DB, aktiviert Fremdschlüssel und spielt das Schema ein (idempotent).

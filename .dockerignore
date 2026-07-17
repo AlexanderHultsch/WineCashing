@@ -3,9 +3,11 @@ node_modules
 data
 *.sqlite
 *.sqlite3
+*.db
 test
 e2e
 docs
+*.md
 .github
 .env
 .env.*

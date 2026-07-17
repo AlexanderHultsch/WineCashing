@@ -4,7 +4,7 @@
 # und lässt den eigentlichen Prozess dann unprivilegiert weiterlaufen.
 set -e
 
-DB_DIR="$(dirname "${WINE_DB_PATH:-/data/wine.sqlite}")"
+DB_DIR="$(dirname "${DB_PATH:-/data/winecashing.db}")"
 mkdir -p "$DB_DIR"
 chown -R node:node "$DB_DIR"
 
