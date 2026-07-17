@@ -8,17 +8,11 @@
   </head>
   <body>
     <main class="app" id="app">
-      <nav class="topnav row between">
-        <span class="brand">🍷 Wine Caching</span>
-        <span class="row">
-          <button id="btn-nav-leave" class="ghost small hidden">Verlassen</button>
-          <a class="ghost small" href="index.html" style="text-decoration:none">Route erstellen / Login</a>
-        </span>
-      </nav>
+      <div id="nav-container"></div>
 
       <!-- Beitritt -->
       <section id="screen-join" class="stack">
-        <h1>🍷 Wine Caching</h1>
+        <h1 id="join-title">🍷 Wine Caching</h1>
         <p class="muted">Gib den Routen-Code ein, den du bekommen hast. Kein Konto nötig.</p>
         <div class="card stack">
           <div class="field">
@@ -83,8 +77,13 @@
       import * as geolocation from './js/geolocation.js';
       import * as sensors from './js/sensors.js';
       import { api, setRouteCode, getRouteCode, clearRouteCode } from './js/api.js';
+      import { renderNavHtml, wireNavToggle } from './js/nav.js';
+      import { LOGO_EMOJI, SITE_NAME, BOTTLE_EMOJI } from './js/config.js';
 
       const $ = (id) => document.getElementById(id);
+      $('join-title').textContent = `${LOGO_EMOJI} ${SITE_NAME}`;
+      $('needle').textContent = BOTTLE_EMOJI;
+
       const screens = {
         [State.PERMISSION_REQUIRED]: 'screen-permission',
         [State.LOADING]: 'screen-loading',
@@ -96,8 +95,39 @@
 
       function show(id) {
         for (const s of allScreens) $(s).classList.toggle('hidden', s !== id);
-        $('btn-nav-leave').classList.toggle('hidden', id === 'screen-join');
       }
+
+      // --- Nav (gemeinsam mit index.html, zeigt hier "Mitsuchen" als aktive Seite) ---
+      let navUser = null;
+      function renderNav() {
+        $('nav-container').innerHTML = renderNavHtml({ active: 'search', user: navUser });
+        wireNavToggle();
+        document.querySelector('[data-nav="logout"]')?.addEventListener('click', async () => {
+          try {
+            await api.logout();
+          } catch {
+            /* ignorieren: egal ob der Logout-Request fehlschlägt, Nav zeigt "ausgeloggt" */
+          }
+          navUser = null;
+          renderNav();
+        });
+        document.querySelector('[data-nav="login"]')?.addEventListener('click', () => {
+          window.location.href = 'index.html';
+        });
+      }
+      renderNav();
+      // Session im Hintergrund prüfen (rein für die Nav-Anzeige — Suchen bleibt auch
+      // ohne Login möglich; hier nur, damit ein bereits eingeloggter Owner nicht
+      // fälschlich "Login" statt seines Namens/Logout sieht).
+      api
+        .me()
+        .then((me) => {
+          navUser = me.user.username;
+          renderNav();
+        })
+        .catch(() => {
+          /* nicht eingeloggt - navUser bleibt null */
+        });
 
       let controller = null;
       let currentRouteId = null;
@@ -219,7 +249,7 @@
       $('btn-found').addEventListener('click', () => controller?.reportFound());
       $('btn-skip').addEventListener('click', () => controller?.reportSkip());
       $('btn-restart').addEventListener('click', restartRoute);
-      for (const id of ['btn-leave', 'btn-leave2', 'btn-leave3', 'btn-nav-leave']) $(id).addEventListener('click', () => leave());
+      for (const id of ['btn-leave', 'btn-leave2', 'btn-leave3']) $(id).addEventListener('click', () => leave());
 
       // Verbindungsstatus an den Controller melden.
       window.addEventListener('online', () => controller?.setOffline(false));

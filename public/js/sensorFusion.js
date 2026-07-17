@@ -20,6 +20,7 @@ export const CONFIG = {
   RUN_SPEED_SPIKE: 5.0,     // m/s — kurzzeitige Toleranz
   HINT_THRESHOLD_M: 15,     // m — Hinweis-Freischaltung
   BOTTLE_LENGTH_M: 0.3,
+  ROTATION_SMOOTHING: 0.18, // 0..1 — Anteil des neuen Werts je Update (träge, aber responsiv)
 };
 
 const EARTH_RADIUS_M = 6371000; // mittlerer Erdradius
@@ -174,6 +175,20 @@ export function smoothPosition(recentSamples, newSample, config = CONFIG) {
     lng: sumLng / sumW,
     effectiveAccuracy: sumAcc / sumW,
   };
+}
+
+// Glättet die Nadel-Rotation über die Zeit (exponentiell gleitender Mittelwert, kreisbewusst:
+// nimmt immer den kürzeren Weg um den Kreis, damit die Nadel nie "die lange Runde" dreht).
+// Ohne das würde die Nadel bei jedem einzelnen (ggf. verrauschten) Kompass-/Positions-Update
+// hart auf den neuen Rohwert springen — sichtbar als Zittern bzw. bei knappem GPS-Signal als
+// schnelles Rotieren/"um die eigene Achse drehen" (kleine Positions-Jitter verursachen bei
+// kurzer Distanz zum Ziel große Bearing-Sprünge). smoothingFactor=1 -> ungeglättet (Rohwert),
+// kleinere Werte -> träger. `null` als vorheriger Wert -> erster Wert wird direkt übernommen
+// (kein künstliches "Einschwingen" von 0 beim allerersten Sample).
+export function smoothRotation(prevRotation, newRotation, smoothingFactor = CONFIG.ROTATION_SMOOTHING) {
+  if (prevRotation == null) return normalize360(newRotation);
+  const shortestDiff = ((normalize360(newRotation) - normalize360(prevRotation) + 540) % 360) - 180;
+  return normalize360(prevRotation + shortestDiff * smoothingFactor);
 }
 
 // --- Ableitungen fürs UI ---

@@ -3,6 +3,7 @@
 import js from '@eslint/js';
 
 export default [
+  { ignores: ['public/vendor/**'] }, // vendorter Drittanbieter-Code (Leaflet) — nicht unserer
   js.configs.recommended,
   {
     files: ['**/*.js'],
@@ -43,6 +44,7 @@ export default [
         document: 'readonly',
         window: 'readonly',
         Event: 'readonly',
+        navigator: 'readonly',
       },
     },
   },
@@ -64,6 +66,7 @@ export default [
         clearInterval: 'readonly',
         performance: 'readonly',
         DeviceOrientationEvent: 'readonly',
+        L: 'readonly', // Leaflet, vendored + <script>-geladen (public/vendor/leaflet/)
       },
     },
   },

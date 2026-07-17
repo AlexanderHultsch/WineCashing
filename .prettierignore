@@ -3,3 +3,4 @@ data/
 *.sqlite
 *.sqlite3
 docs/technischer-vertrag.md
+public/vendor/

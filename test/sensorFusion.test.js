@@ -15,6 +15,7 @@ import {
   computeCompassRotation,
   isPlausibleMovement,
   smoothPosition,
+  smoothRotation,
   shouldRevealHint,
 } from '../public/js/sensorFusion.js';
 
@@ -127,4 +128,34 @@ test('shouldRevealHint: nur unter Schwelle', () => {
   assert.equal(shouldRevealHint(10, CONFIG), true);
   assert.equal(shouldRevealHint(15, CONFIG), false);
   assert.equal(shouldRevealHint(20, CONFIG), false);
+});
+
+// --- Rotations-Glättung (Bug: Kompass zittert / dreht sich um die eigene Achse) ---
+test('smoothRotation: erster Wert wird direkt übernommen (kein Einschwingen von 0)', () => {
+  assert.equal(smoothRotation(null, 275), 275);
+});
+
+test('smoothRotation: nimmt den kürzeren Weg um den Kreis (0/360-Übergang)', () => {
+  // 350 -> 10 ist "kurz vorwärts durch 0" (+20°), nicht rückwärts durch 180° (-340°).
+  assert.equal(smoothRotation(350, 10, 0.5), 0);
+  // 10 -> 350 ist "kurz rückwärts durch 0" (-20°), nicht vorwärts durch 180°.
+  assert.equal(smoothRotation(10, 350, 0.5), 0);
+});
+
+test('smoothRotation: factor=1 ist ungeglättet (Rohwert), kleiner factor ist träger', () => {
+  assert.equal(smoothRotation(0, 100, 1), 100);
+  approx(smoothRotation(0, 100, 0.2), 20, 1e-9, 'träge: nur 20% der Distanz');
+});
+
+test('smoothRotation: Mehrfach-Update konvergiert gegen einen stabilen Zielwert (kein Jitter-Rückschlag)', () => {
+  let rotation = null;
+  for (let i = 0; i < 50; i++) rotation = smoothRotation(rotation, 90, 0.18);
+  approx(rotation, 90, 0.5, 'konvergiert nach genug Updates gegen den stabilen Zielwert');
+});
+
+test('smoothRotation: einzelner Ausreißer reißt die Nadel nicht komplett herum', () => {
+  const stable = smoothRotation(null, 0); // Nadel zeigt stabil auf 0°
+  const afterOutlier = smoothRotation(stable, 180, 0.18); // ein einzelnes 180°-Ausreißer-Sample
+  // Ein Wert bei träger Glättung bewegt sich nur ein kleines Stück, nicht bis zum Ausreißer.
+  assert.ok(angularDifference(afterOutlier, stable) < 40, 'ein Ausreißer bewegt die Nadel nur wenig');
 });

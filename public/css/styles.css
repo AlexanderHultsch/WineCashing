@@ -1,6 +1,14 @@
-/* Wine Caching — Styles. Mobile-first, hell/dunkel-fähig. */
+/* ============================================================================
+   Wine Caching — Styles. Mobile-first, hell/dunkel-fähig.
+
+   ANPASSBARE WERTE stehen hier oben in :root — Farben, Schriftart, Ecken-Radius,
+   Schatten. Alles danach ist Layout/Komponenten-Logik und muss für eine reine
+   Optik-Änderung normalerweise nicht angefasst werden. Sichtbare TEXTE (Titel,
+   Logo-Emoji, …) stehen nicht hier, sondern in public/js/config.js.
+   ============================================================================ */
 :root {
   color-scheme: light dark;
+  --font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --bg: #f6f4ef;
   --surface: #ffffff;
   --surface-2: #efeae1;
@@ -27,6 +35,10 @@
   }
 }
 
+/* ============================================================================
+   Ab hier: Layout & Komponenten. Nutzt ausschließlich obige Variablen.
+   ============================================================================ */
+
 * {
   box-sizing: border-box;
 }
@@ -36,7 +48,7 @@ body {
   padding: 0;
 }
 body {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-family);
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
@@ -199,35 +211,64 @@ button:disabled {
   font-size: 0.85rem;
 }
 
-/* Navigation */
+/* Navigation: Hamburger-Menü, gleich auf jeder Seite (public/js/nav.js). */
 .topnav {
-  padding-bottom: 6px;
-  margin-bottom: 6px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
 .brand {
   font-weight: 800;
-  cursor: pointer;
 }
-
-/* Koordinaten-Eingabe (Grad/Minuten/Sekunden) */
-.dms-row {
+.hamburger {
+  padding: 6px 12px;
+  font-size: 1.2rem;
+  line-height: 1;
+  background: transparent;
+  border-color: var(--border);
+}
+.nav-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
   display: flex;
-  gap: 6px;
-}
-.dms-row input {
-  min-width: 0;
-  flex: 1;
-  text-align: center;
-}
-.dms-row select {
-  flex: 0 0 auto;
-  width: 3.2rem;
-  padding: 11px 4px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  flex-direction: column;
+  min-width: 180px;
   background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  gap: 2px;
+}
+.nav-menu .nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-weight: 500;
   color: var(--text);
+}
+.nav-menu .nav-item:hover {
+  background: var(--surface-2);
+}
+.nav-menu .nav-item.active {
+  background: color-mix(in srgb, var(--wine) 14%, transparent);
+  color: var(--wine);
+  font-weight: 700;
+}
+.nav-user {
+  padding: 6px 10px 2px;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 .info {
@@ -264,6 +305,32 @@ button:disabled {
 .error {
   color: var(--danger);
   font-size: 0.9rem;
+}
+
+/* Karten-Auswahl (Owner-UI: Wegpunkt-Position per Leaflet-Karte wählen) */
+.map-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+.map-overlay-inner {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px;
+  width: 100%;
+  max-width: 640px;
+  box-shadow: var(--shadow);
+}
+.map-picker {
+  width: 100%;
+  height: min(50vh, 420px);
+  border-radius: 10px;
+  border: 1px solid var(--border);
 }
 
 /* Such-Modus */

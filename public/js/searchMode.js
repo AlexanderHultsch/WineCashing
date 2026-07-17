@@ -201,7 +201,8 @@ export function createSearchController(deps) {
   function updateRotation(fromPos, target) {
     if (lastHeading == null) return;
     const bearing = fusion.computeBearing(fromPos.lat, fromPos.lng, target.lat, target.lng);
-    rotation = fusion.computeCompassRotation(bearing, lastHeading, declination);
+    const rawRotation = fusion.computeCompassRotation(bearing, lastHeading, declination);
+    rotation = fusion.smoothRotation(rotation, rawRotation, config.ROTATION_SMOOTHING);
   }
 
   function onGpsSample(sample) {

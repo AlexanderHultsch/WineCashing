@@ -5,14 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Wine Caching</title>
     <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+    <!-- Klassisches Script (kein type=module) -> läuft synchron, bevor unser Modul unten
+         startet. Dadurch ist das globale `L` garantiert vorhanden. Selbst gehostet
+         (public/vendor/leaflet/), keine externe CDN-Abhängigkeit zur Laufzeit. -->
+    <script src="vendor/leaflet/leaflet.js"></script>
   </head>
   <body>
     <main class="app" id="app"></main>
 
+    <!-- Karten-Auswahl-Overlay: bewusst AUSSERHALB von #app, damit es beim Neu-Rendern
+         der App (innerHTML-Ersetzung) nicht mit-zerstört wird und die Leaflet-Karteninstanz
+         über mehrere Öffnungen hinweg erhalten bleibt. -->
+    <div id="map-overlay" class="map-overlay hidden">
+      <div class="map-overlay-inner">
+        <div id="map-picker" class="map-picker"></div>
+        <p class="muted" id="map-picker-coords" style="margin-top: 8px">Punkt auf der Karte antippen …</p>
+        <div class="row wrap" style="margin-top: 8px">
+          <button type="button" class="primary block" id="map-picker-confirm">Bestätigen</button>
+          <button type="button" class="ghost block" id="map-picker-cancel">Abbrechen</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module">
       import { api } from './js/api.js';
       import * as geolocation from './js/geolocation.js';
-      import { dmsToDecimal, decimalToDms, formatDms, parseCoordinateString } from './js/coordinates.js';
+      import { formatDms } from './js/coordinates.js';
+      import { openMapPicker, getMapPickerPosition } from './js/mapPicker.js';
+      import { renderNavHtml, wireNavToggle } from './js/nav.js';
+      import { SITE_NAME, SITE_TAGLINE, LOGO_EMOJI, DEFAULT_MAP_CENTER } from './js/config.js';
 
       const app = document.getElementById('app');
       const S = {
@@ -23,7 +45,7 @@
         route: null,
         error: '',
         info: '',
-        wpDraft: null, // überlebt Fehler-Re-Renders beim Wegpunkt-Formular
+        wpDraft: null, // { name, hint, lat, lng } — überlebt Fehler-Re-Renders
       };
 
       const esc = (s) =>
@@ -49,7 +71,7 @@
         });
 
       // Session prüfen und je nach Ergebnis in die Routenliste oder den Login verzweigen.
-      // Genutzt von der Landing-Kachel UND vom Login-Link in der Navigation.
+      // Genutzt von der Landing-Kachel UND vom Login-Menüpunkt.
       async function enterOwnerArea() {
         try {
           const me = await api.me();
@@ -80,60 +102,49 @@
         render();
       }
 
-      // --- Koordinaten-Formular: DOM <-> Draft ---
-      function readWpDraftFromDom() {
-        const v = (id) => document.getElementById(id)?.value ?? '';
-        return {
-          name: v('wp-name'),
-          hint: v('wp-hint'),
-          paste: v('wp-paste'),
-          latDeg: v('wp-lat-deg'),
-          latMin: v('wp-lat-min'),
-          latSec: v('wp-lat-sec'),
-          latHemi: v('wp-lat-hemi') || 'N',
-          lngDeg: v('wp-lng-deg'),
-          lngMin: v('wp-lng-min'),
-          lngSec: v('wp-lng-sec'),
-          lngHemi: v('wp-lng-hemi') || 'E',
+      // --- Wegpunkt-Formular: Name/Hinweis aus dem DOM lesen, Position im State halten.
+      // Vor jeder Aktion aufgerufen, damit Werte einen Fehler-Re-Render überleben.
+      function snapshotWpDraft() {
+        S.wpDraft = {
+          name: document.getElementById('wp-name')?.value ?? '',
+          hint: document.getElementById('wp-hint')?.value ?? '',
+          lat: S.wpDraft?.lat ?? null,
+          lng: S.wpDraft?.lng ?? null,
         };
       }
-      // Schreibt einen Dezimalgrad-Wert direkt in die DMS-Felder (kein Re-Render -> andere
-      // Formularfelder wie Name/Hinweis bleiben garantiert unangetastet).
-      function fillDmsInputs(prefix, decimalValue, isLatitude) {
-        const { deg, min, sec } = decimalToDms(decimalValue);
-        document.getElementById(`wp-${prefix}-deg`).value = deg;
-        document.getElementById(`wp-${prefix}-min`).value = min;
-        document.getElementById(`wp-${prefix}-sec`).value = sec;
-        document.getElementById(`wp-${prefix}-hemi`).value = isLatitude
-          ? decimalValue < 0
-            ? 'S'
-            : 'N'
-          : decimalValue < 0
-            ? 'W'
-            : 'E';
+
+      function showMapOverlay() {
+        document.getElementById('map-overlay').classList.remove('hidden');
+        const start = S.wpDraft?.lat != null ? { lat: S.wpDraft.lat, lng: S.wpDraft.lng } : DEFAULT_MAP_CENTER;
+        openMapPicker('map-picker', {
+          startLat: start.lat,
+          startLng: start.lng,
+          onMove: (lat, lng) => {
+            document.getElementById('map-picker-coords').textContent = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          },
+        });
       }
+      function hideMapOverlay() {
+        document.getElementById('map-overlay').classList.add('hidden');
+      }
+      document.getElementById('map-picker-cancel').addEventListener('click', hideMapOverlay);
+      document.getElementById('map-picker-confirm').addEventListener('click', () => {
+        const { lat, lng } = getMapPickerPosition();
+        S.wpDraft = { ...(S.wpDraft ?? { name: '', hint: '' }), lat, lng };
+        hideMapOverlay();
+        render();
+      });
 
       // --- Views ---
       function viewNav() {
-        const right = S.user
-          ? `<span class="muted" style="font-size:.82rem">👤 ${esc(S.user.username)}</span>
-             <button class="ghost small" data-action="logout">Logout</button>`
-          : `<button class="ghost small" data-action="enter-owner">Login</button>`;
-        return `
-          <nav class="topnav row between wrap">
-            <span class="brand" data-action="goto-landing" role="button">🍷 Wine Caching</span>
-            <span class="row">
-              <a class="ghost small" href="search.html" style="text-decoration:none">🔍 Mitsuchen</a>
-              ${right}
-            </span>
-          </nav>`;
+        return renderNavHtml({ active: 'create', user: S.user?.username ?? null });
       }
 
       function viewLanding() {
         return `
           <div class="stack center">
-            <h1>🍷 Wine Caching</h1>
-            <p class="muted">Geocaching mit Weinflaschen für den Freundeskreis.</p>
+            <h1>${LOGO_EMOJI} ${esc(SITE_NAME)}</h1>
+            <p class="muted">${esc(SITE_TAGLINE)}</p>
           </div>
           <div class="card stack">
             <button class="primary block" data-action="enter-owner">🍾 Route erstellen (Ersteller)</button>
@@ -214,6 +225,7 @@
         const codeSection = code
           ? `<div class="row between wrap">
                <span class="code">${esc(code)}</span>
+               <button type="button" class="ghost small" data-action="copy-code">📋 Kopieren</button>
                <span class="badge ${r.route_code_active ? 'on' : 'off'}">${r.route_code_active ? 'aktiv' : 'deaktiviert'}</span>
              </div>
              <p class="muted">Mitsucher öffnen <a href="search.html">search.html</a> und geben diesen Code ein (Groß-/Kleinschreibung egal).</p>
@@ -225,6 +237,16 @@
              <button class="ghost small" data-action="code-create">Code erzeugen</button>`;
 
         const d = S.wpDraft || {};
+        const positionLine =
+          d.lat != null
+            ? `<p class="info">📍 Position übernommen: ${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}
+                (${formatDms(d.lat, true)} ${formatDms(d.lng, false)})</p>`
+            : `<p class="muted">Noch keine Position gewählt.</p>`;
+
+        const startControl =
+          r.status === 'such_modus'
+            ? `<button class="ghost block" disabled>✅ Route aktiv</button>`
+            : `<button class="accent block" data-action="start">Suche starten</button>`;
 
         return `
           <div class="row between">
@@ -244,46 +266,15 @@
             <div class="field"><label>Hinweis</label><input id="wp-hint" placeholder="z. B. hinter dem dritten Stein" value="${esc(d.hint)}" /></div>
 
             <div class="field">
-              <label>Koordinaten aus Google Maps einfügen (optional)</label>
-              <input id="wp-paste" placeholder="z. B. 48°59'58.0&quot;N 8°29'17.4&quot;E oder 48.9994, 8.4881" value="${esc(d.paste)}" />
-              <button type="button" class="ghost small" data-action="paste-coords" style="margin-top:6px">Übernehmen</button>
+              <label>Position</label>
+              <div class="row wrap">
+                <button type="button" class="ghost" data-action="use-location">📍 Aktuellen Standort verwenden</button>
+                <button type="button" class="ghost" data-action="open-map-picker">🗺️ Punkt auf Karte auswählen</button>
+              </div>
+              <p class="muted" style="font-size:.78rem">Tipp: Erst „Aktuellen Standort verwenden", dann auf der Karte feinjustieren.</p>
+              ${positionLine}
             </div>
 
-            <p class="muted" style="font-size:.82rem">
-              <strong>Breite</strong> (Lat) = Nord/Süd-Position, <strong>Länge</strong> (Lng) = Ost/West-Position.
-              In Google Maps: auf den Punkt tippen/rechtsklicken → die angezeigten Koordinaten
-              (z. B. <code>48°59'58.0"N 8°29'17.4"E</code>) kopieren und oben einfügen — oder unten
-              Grad/Minuten/Sekunden von Hand eingeben.
-            </p>
-
-            <div class="row wrap">
-              <div class="field" style="flex:1; min-width:220px">
-                <label>Breite (Nord/Süd)</label>
-                <div class="dms-row">
-                  <input id="wp-lat-deg" type="number" min="0" max="90" placeholder="Grad °" value="${esc(d.latDeg)}" />
-                  <input id="wp-lat-min" type="number" min="0" max="59" placeholder="Min ′" value="${esc(d.latMin)}" />
-                  <input id="wp-lat-sec" type="number" min="0" max="59.9" step="0.1" placeholder="Sek ″" value="${esc(d.latSec)}" />
-                  <select id="wp-lat-hemi">
-                    <option value="N" ${d.latHemi !== 'S' ? 'selected' : ''}>N</option>
-                    <option value="S" ${d.latHemi === 'S' ? 'selected' : ''}>S</option>
-                  </select>
-                </div>
-              </div>
-              <div class="field" style="flex:1; min-width:220px">
-                <label>Länge (Ost/West)</label>
-                <div class="dms-row">
-                  <input id="wp-lng-deg" type="number" min="0" max="180" placeholder="Grad °" value="${esc(d.lngDeg)}" />
-                  <input id="wp-lng-min" type="number" min="0" max="59" placeholder="Min ′" value="${esc(d.lngMin)}" />
-                  <input id="wp-lng-sec" type="number" min="0" max="59.9" step="0.1" placeholder="Sek ″" value="${esc(d.lngSec)}" />
-                  <select id="wp-lng-hemi">
-                    <option value="E" ${d.lngHemi !== 'W' ? 'selected' : ''}>E</option>
-                    <option value="W" ${d.lngHemi === 'W' ? 'selected' : ''}>W</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <button class="ghost block" data-action="use-location">📍 Aktuellen Standort verwenden</button>
             <button class="primary block" data-action="wp-add">Hinzufügen</button>
           </div>
 
@@ -293,9 +284,9 @@
           </div>
 
           <div class="card stack">
-            <h3>Steuerung</h3>
+            <h3>Routen-Steuerung</h3>
             <div class="row wrap">
-              <button class="accent block" data-action="start">Suche starten</button>
+              ${startControl}
               <button class="ghost block" data-action="reset">Zurücksetzen</button>
             </div>
             <button class="danger" data-action="delete-route">Route löschen</button>
@@ -315,10 +306,30 @@
         else if (S.screen === 'routes') body = viewRoutes();
         else if (S.screen === 'route') body = viewRoute();
         app.innerHTML = viewNav() + body;
+        wireNavToggle();
       }
 
       // --- Aktionen (Event-Delegation) ---
       app.addEventListener('click', (e) => {
+        const navBtn = e.target.closest('[data-nav]');
+        if (navBtn) {
+          const kind = navBtn.dataset.nav;
+          if (kind === 'login') guard(enterOwnerArea);
+          else if (kind === 'logout')
+            guard(async () => {
+              await api.logout();
+              S.user = null;
+              S.screen = 'landing';
+              render();
+            });
+          else if (kind === 'create') {
+            // Schon auf index.html: kein Seiten-Reload, direkt in den Owner-Bereich springen.
+            e.preventDefault();
+            guard(enterOwnerArea);
+          }
+          return;
+        }
+
         const btn = e.target.closest('[data-action]');
         if (!btn) return;
         const { action, id } = btn.dataset;
@@ -349,13 +360,6 @@
               S.user = res.user;
               await loadRoutes();
             }),
-          logout: () =>
-            guard(async () => {
-              await api.logout();
-              S.user = null;
-              S.screen = 'landing';
-              render();
-            }),
           'create-route': () =>
             guard(async () => {
               const name = document.getElementById('new-route-name').value.trim();
@@ -367,53 +371,48 @@
           back: () => guard(loadRoutes),
           'use-location': () =>
             guard(async () => {
-              S.wpDraft = readWpDraftFromDom();
+              snapshotWpDraft();
               const s = await geolocation.requestLocationPermission();
-              fillDmsInputs('lat', s.lat, true);
-              fillDmsInputs('lng', s.lng, false);
+              S.wpDraft.lat = s.lat;
+              S.wpDraft.lng = s.lng;
+              render(); // Bestätigung sichtbar machen (Position übernommen: ...)
             }),
-          'paste-coords': () =>
+          'open-map-picker': () =>
             guard(async () => {
-              S.wpDraft = readWpDraftFromDom();
-              const parsed = parseCoordinateString(S.wpDraft.paste);
-              if (!parsed) {
-                throw new Error(
-                  'Konnte die Koordinaten nicht lesen. Beispiel: 48°59\'58.0"N 8°29\'17.4"E oder 48.9994, 8.4881',
-                );
-              }
-              fillDmsInputs('lat', parsed.lat, true);
-              fillDmsInputs('lng', parsed.lng, false);
+              snapshotWpDraft();
+              showMapOverlay();
             }),
           'wp-add': () =>
             guard(async () => {
               // Zuerst sichern: bei einem Fehler bleiben alle eingegebenen Werte erhalten
               // (werden erst nach erfolgreichem Anlegen wieder geleert).
-              S.wpDraft = readWpDraftFromDom();
+              snapshotWpDraft();
               const d = S.wpDraft;
               const hint_text = d.hint.trim();
               const name = d.name.trim();
               if (!hint_text) throw new Error('Bitte einen Hinweis angeben.');
-
-              const parts = [d.latDeg, d.latMin, d.latSec, d.lngDeg, d.lngMin, d.lngSec].map((v) => parseFloat(v));
-              if (parts.some(Number.isNaN)) {
-                throw new Error(
-                  'Bitte Grad/Minuten/Sekunden vollständig eingeben — oder Koordinaten oben einfügen und "Übernehmen" klicken.',
-                );
+              if (d.lat == null || d.lng == null) {
+                throw new Error('Bitte eine Position wählen ("Aktuellen Standort verwenden" oder "Punkt auf Karte auswählen").');
               }
-              const [latDeg, latMin, latSec, lngDeg, lngMin, lngSec] = parts;
-              const lat = dmsToDecimal(latDeg, latMin, latSec, d.latHemi);
-              const lng = dmsToDecimal(lngDeg, lngMin, lngSec, d.lngHemi);
-              if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-                throw new Error('Koordinaten außerhalb des gültigen Bereichs.');
-              }
-
-              await api.addWaypoint(rid, { lat, lng, hint_text, name: name || undefined });
+              await api.addWaypoint(rid, { lat: d.lat, lng: d.lng, hint_text, name: name || undefined });
               S.wpDraft = null; // nur bei Erfolg leeren
               await refreshRoute();
             }),
           'wp-del': () => call(() => api.deleteWaypoint(rid, id)),
           'wp-up': () => guard(() => moveWaypoint(id, -1)),
           'wp-down': () => guard(() => moveWaypoint(id, +1)),
+          'copy-code': () =>
+            guard(async () => {
+              await navigator.clipboard.writeText(S.route.route_code);
+              const copyBtn = document.querySelector('[data-action="copy-code"]');
+              if (copyBtn) {
+                const original = copyBtn.textContent;
+                copyBtn.textContent = '✅ Kopiert!';
+                setTimeout(() => {
+                  copyBtn.textContent = original;
+                }, 2000);
+              }
+            }),
           'code-create': () => call(() => api.createCode(rid)),
           'code-renew': () => call(() => api.renewCode(rid)),
           'code-deactivate': () => call(() => api.deactivateCode(rid)),
@@ -460,6 +459,19 @@
 
       // --- Start: Landing-Screen zuerst (Vertrag: Ersteller vs. Mitsucher aktiv wählen) ---
       render();
+
+      // Session-Status im Hintergrund ermitteln, NUR fürs Nav-Menü (zeigt immer den echten
+      // Login-Status, auch bevor "Route erstellen" angeklickt wurde) — überspringt dabei
+      // NICHT den Landing-Screen.
+      api
+        .me()
+        .then((me) => {
+          S.user = me.user;
+          render();
+        })
+        .catch(() => {
+          /* nicht eingeloggt - S.user bleibt null */
+        });
     </script>
   </body>
 </html>
