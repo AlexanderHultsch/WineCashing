@@ -29,7 +29,7 @@ Zwei getrennte Mechanismen:
 | Routen-/Fortschritts-Zustand lesen (Polling) | ✅ (eigene Route) | ✅ | ❌ |
 | Fund/Skip melden | ✅ (eigene Route) | ✅ | ❌ |
 | Reset (Wegpunkte → `offen`) | ✅ (eigene Route) | ✅ | ❌ |
-| Admin-Passwort-Reset | ✅ (nur `is_admin`) | ❌ | ❌ |
+| Admin-Passwort-Reset, Admin-Verwaltung (`/api/admin/*`) | ✅ (nur `is_admin`, **alle** Routen/Nutzer) | ❌ | ❌ |
 
 **Wichtige Design-Entscheidung — Hinweistexte:** `hint_text` wird im Routen-Payload **an den Client ausgeliefert** (nötig für die Offline-Hinweis-Freischaltung, Spec 10). Das „verborgen bis Annäherung" (Spec 6.4) ist eine **UI-Regel auf dem Client**, keine Server-Geheimhaltung. Für den privaten Freundeskreis ist das akzeptabel und ausdrücklich so gewollt.
 
@@ -81,11 +81,28 @@ Passwörter serverseitig mit bcrypt/argon2 hashen. Login/Register rate-limitiert
 ### Routen-Code (Spec 5)
 | Methode | Pfad | Erfolg | Wirkung |
 |---|---|---|---|
-| POST | `/api/routes/:routeId/code` | `200 {route_code, active:true}` | Erzeugt Code, falls keiner existiert (Legacy-Routen); sonst gibt aktuellen zurück |
+| POST | `/api/routes/:routeId/code` | `200 {route_code, active}` | Erzeugt Code, falls keiner existiert (Legacy-Routen); sonst gibt aktuellen Zustand zurück (verändert `route_code_active` **nicht**) |
 | POST | `/api/routes/:routeId/code/renew` | `200 {route_code, active:true}` | Neuer Code; **alter wird ungültig → alle Mitsucher ausgesperrt** |
+| POST | `/api/routes/:routeId/code/activate` | `200 {route_code, active:true}` | `route_code_active=true` (reaktiviert bestehenden Code; erzeugt einen, falls die Alt-Route keinen hat) |
 | POST | `/api/routes/:routeId/code/deactivate` | `200 {active:false}` | `route_code_active=false`; **alle Mitsucher ausgesperrt** |
 
 **Amendment (Nutzer-Feedback):** `POST /api/routes` erzeugt den Code jetzt **direkt bei Anlage** (aktiv) — der manuelle Zusatzklick brachte keinen Sicherheitsgewinn, da Teilen ohnehin ein bewusster Owner-Schritt bleibt. Wer noch nicht teilen will, nutzt `code/deactivate`. `POST .../code` bleibt als idempotenter Endpunkt für Alt-Routen ohne Code erhalten.
+
+**Amendment (Nutzer-Feedback, Bugs 1/3/5):** Reaktivieren geht über den neuen `code/activate` — der alte `POST .../code` gab bei bestehendem Code nur den Zustand zurück, ohne `route_code_active` zu setzen (der „Reaktivieren"-Button blieb wirkungslos). Die Owner-UI führt Aktivierung/Deaktivierung jetzt **gebündelt** über *einen* Umschalter in der Routen-Steuerung (Start = `code/activate`/`start`, Deaktivieren = `code/deactivate`), abgeleitet aus einem Tri-State **Erstellung / Aktiv / Deaktiviert** = f(`status`, `route_code_active`); siehe `public/js/routeStatus.js`.
+
+### Admin-Verwaltung (`routes/admin.js`, Frage 6 — nur `is_admin`)
+
+Alle Endpunkte unter `/api/admin/*`, gegated durch `requireAdmin`. Sicht/Zugriff auf **alle** Routen und Nutzer (nicht nur eigene). Bewusst als eigene, gespiegelte Endpunkte statt Aufweichung der Owner-Isolation.
+
+| Methode | Pfad | Erfolg | Wirkung |
+|---|---|---|---|
+| GET | `/api/admin/routes` | `200 [RouteSummary & {owner_username}]` | Alle Routen inkl. Ersteller-Name |
+| GET | `/api/admin/users` | `200 [{id, username, is_admin, created_at, route_count}]` | Alle Nutzer inkl. Routen-Anzahl |
+| DELETE | `/api/admin/routes/:routeId` | `204` | Route löschen (CASCADE) |
+| DELETE | `/api/admin/users/:userId` | `204` | Nutzer + all seine Routen löschen. Eigener Account → `400 SELF_DELETE_FORBIDDEN`; unbekannt → `404` |
+| POST | `/api/admin/routes/:routeId/code/renew` | `200 {route_code, active:true}` | Neuer Code für fremde Route |
+| POST | `/api/admin/routes/:routeId/code/activate` | `200 {route_code, active:true}` | Fremden Code (re)aktivieren |
+| POST | `/api/admin/routes/:routeId/code/deactivate` | `200 {active:false}` | Fremden Code deaktivieren |
 
 Code-Format: 8 Zeichen aus dem GROSSBUCHSTABEN-Alphabet `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (ohne verwechselbare Zeichen `0 1 I L O`), Bindestrich nach Position 4 (z. B. `WC7F-K2PQ`). Anzeige immer in Großschreibung; die Eingabe (`X-Route-Code`, `/join`-Body) ist **case-insensitiv** — der Server normalisiert vor jedem Vergleich.
 

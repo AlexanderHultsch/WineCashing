@@ -4,10 +4,10 @@
 // die konkreten Aktionen absichtlich nicht, damit beide Seiten unabhängig bleiben.
 import { LOGO_EMOJI, SITE_NAME } from './config.js';
 
-// active: 'search' | 'create' — welcher Menüpunkt als "aktuelle Seite" markiert wird
-// (kein Router: index.html und search.html sind zwei getrennte HTML-Dateien).
-// user: eingeloggter Benutzername oder null.
-export function renderNavHtml({ active, user }) {
+// active: 'search' | 'create' | 'admin' | 'info' — welcher Menüpunkt als "aktuelle Seite"
+// markiert wird (kein Router: die Seiten sind getrennte HTML-Dateien).
+// user: eingeloggter Benutzername oder null. isAdmin: nur dann erscheint der Admin-Menüpunkt.
+export function renderNavHtml({ active, user, isAdmin = false }) {
   const markActive = (key) => (key === active ? 'active' : '');
   return `
     <nav class="topnav">
@@ -22,6 +22,8 @@ export function renderNavHtml({ active, user }) {
         }
         <a class="nav-item ${markActive('search')}" href="search.html">🔍 Mitsuchen</a>
         <a class="nav-item ${markActive('create')}" href="index.html" data-nav="create">🍾 Route erstellen</a>
+        ${isAdmin ? `<a class="nav-item ${markActive('admin')}" href="index.html" data-nav="admin">⚙️ Admin</a>` : ''}
+        <a class="nav-item ${markActive('info')}" href="datenschutz.html">ℹ️ Info &amp; Datenschutz</a>
       </div>
     </nav>`;
 }

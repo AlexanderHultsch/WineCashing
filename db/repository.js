@@ -43,6 +43,18 @@ export function createRepository(db) {
     setUserAdmin(id, isAdmin) {
       q('UPDATE users SET is_admin = ? WHERE id = ?').run(isAdmin ? 1 : 0, id);
     },
+    // Admin-Übersicht (Frage 6): alle Nutzer inkl. Routen-Anzahl.
+    listAllUsers() {
+      return q(
+        `SELECT u.id, u.username, u.is_admin, u.created_at,
+                (SELECT COUNT(*) FROM routes r WHERE r.owner_user_id = u.id) AS route_count
+         FROM users u ORDER BY u.created_at`,
+      ).all();
+    },
+    // Löscht Nutzer + all seine Routen/Wegpunkte/Status/Fortschritt (ON DELETE CASCADE, schema.sql).
+    deleteUser(id) {
+      q('DELETE FROM users WHERE id = ?').run(id);
+    },
 
     // --- Routes ---
     createRoute(r) {
@@ -78,6 +90,14 @@ export function createRepository(db) {
     },
     deleteRoute(id) {
       q('DELETE FROM routes WHERE id = ?').run(id); // ON DELETE CASCADE räumt den Rest
+    },
+    // Admin-Übersicht (Frage 6): alle Routen aller Nutzer inkl. Ersteller-Name.
+    listAllRoutes() {
+      return q(
+        `SELECT r.*, u.username AS owner_username
+         FROM routes r JOIN users u ON u.id = r.owner_user_id
+         ORDER BY r.created_at DESC`,
+      ).all();
     },
 
     // --- Waypoints ---

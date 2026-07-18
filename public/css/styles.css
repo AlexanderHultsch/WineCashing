@@ -311,6 +311,28 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+/* Admin-Panel (Frage 6): einfache Übersichts-Tabellen für alle Routen/Nutzer. */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.admin-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 /* Karten-Auswahl (Owner-UI: Wegpunkt-Position per Leaflet-Karte wählen) */
 .map-overlay {
   position: fixed;

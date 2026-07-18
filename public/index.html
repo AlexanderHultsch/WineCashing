@@ -37,10 +37,11 @@
       import { api } from './js/api.js';
       import * as geolocation from './js/geolocation.js';
       import { formatDms } from './js/coordinates.js';
-      import { openMapPicker, getMapPickerPosition } from './js/mapPicker.js';
+      import { openMapPicker, getMapPickerPosition, moveMapPickerTo } from './js/mapPicker.js';
       import { renderNavHtml, wireNavToggle } from './js/nav.js';
       import { copyToClipboard } from './js/clipboard.js';
       import { SITE_NAME, SITE_TAGLINE, LOGO_EMOJI, DEFAULT_MAP_CENTER } from './js/config.js';
+      import { deriveRouteDisplayStatus, ROUTE_DISPLAY_STATUS_LABEL, ROUTE_DISPLAY_STATUS_BADGE_CLASS } from './js/routeStatus.js';
 
       const app = document.getElementById('app');
       const S = {
@@ -51,12 +52,20 @@
         route: null,
         error: '',
         info: '',
+        progress: null, // RouteProgress der offenen Route (nur fürs "Abgeschlossen"-Badge, Bug 3)
         wpDraft: null, // { name, hint, lat, lng } — überlebt Fehler-Re-Renders
+        admin: null, // { routes, users } — nur geladen, wenn is_admin (Frage 6)
       };
 
       const esc = (s) =>
         String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-      const statusBadge = (status) => `<span class="badge">${status === 'such_modus' ? 'Such-Modus' : 'Erstellung'}</span>`;
+      // Abgeleiteter Tri-State (Bugs 1/3/5): ersetzt die frühere getrennte Anzeige von
+      // route.status und route_code_active, die widersprüchlich wirken konnte (z. B.
+      // "Route aktiv", obwohl der Code deaktiviert war).
+      const displayStatusBadge = (route) => {
+        const s = deriveRouteDisplayStatus(route);
+        return `<span class="badge ${ROUTE_DISPLAY_STATUS_BADGE_CLASS[s]}">${ROUTE_DISPLAY_STATUS_LABEL[s]}</span>`;
+      };
 
       async function guard(fn) {
         try {
@@ -99,12 +108,25 @@
       }
       async function openRoute(id) {
         S.route = await api.getRoute(id);
+        S.progress = (await api.state(id)).progress;
         S.wpDraft = null;
         S.screen = 'route';
         render();
       }
       async function refreshRoute() {
         S.route = await api.getRoute(S.route.id);
+        S.progress = (await api.state(S.route.id)).progress;
+        render();
+      }
+      async function loadAdmin() {
+        const [routes, users] = await Promise.all([api.adminListRoutes(), api.adminListUsers()]);
+        S.admin = { routes, users };
+        S.screen = 'admin';
+        render();
+      }
+      async function refreshAdmin() {
+        const [routes, users] = await Promise.all([api.adminListRoutes(), api.adminListUsers()]);
+        S.admin = { routes, users };
         render();
       }
 
@@ -119,16 +141,44 @@
         };
       }
 
+      // Frage 2: ohne vorherigen "Aktuellen Standort verwenden"-Klick landete die Karte
+      // stumpf auf DEFAULT_MAP_CENTER (Mitte Deutschlands) — "mitten im Nirgendwo". Priorität
+      // für den Startpunkt: laufende Auswahl > letzter Wegpunkt dieser Route (Flaschen liegen
+      // meist nah beieinander) > eigener Standort (automatisch angefragt) > Deutschland-Default.
       function showMapOverlay() {
         document.getElementById('map-overlay').classList.remove('hidden');
-        const start = S.wpDraft?.lat != null ? { lat: S.wpDraft.lat, lng: S.wpDraft.lng } : DEFAULT_MAP_CENTER;
+        const lastWp = S.route?.waypoints?.length ? S.route.waypoints[S.route.waypoints.length - 1] : null;
+        const hasKnownStart = S.wpDraft?.lat != null || !!lastWp;
+        const start = S.wpDraft?.lat != null ? { lat: S.wpDraft.lat, lng: S.wpDraft.lng } : lastWp ? { lat: lastWp.lat, lng: lastWp.lng } : DEFAULT_MAP_CENTER;
+
+        const coordsEl = () => document.getElementById('map-picker-coords');
         openMapPicker('map-picker', {
           startLat: start.lat,
           startLng: start.lng,
           onMove: (lat, lng) => {
-            document.getElementById('map-picker-coords').textContent = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            coordsEl().textContent = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          },
+          onLocateRequest: async () => {
+            try {
+              const s = await geolocation.requestLocationPermission();
+              moveMapPickerTo(s.lat, s.lng);
+            } catch {
+              coordsEl().textContent = 'Standort nicht verfügbar — bitte Karte manuell verschieben.';
+            }
           },
         });
+
+        // Kein bekannter Startpunkt -> automatisch den eigenen Standort versuchen (still,
+        // ohne die Karte zu blockieren). Schlägt das fehl (verweigert/Timeout), bleibt der
+        // synchrone Default (letzter Wegpunkt oder Deutschland) bestehen.
+        if (!hasKnownStart) {
+          geolocation
+            .requestLocationPermission()
+            .then((s) => moveMapPickerTo(s.lat, s.lng))
+            .catch(() => {
+              /* Standort nicht verfügbar: Default-Zentrum bleibt, Locate-Button bleibt nutzbar */
+            });
+        }
       }
       function hideMapOverlay() {
         document.getElementById('map-overlay').classList.add('hidden');
@@ -143,7 +193,11 @@
 
       // --- Views ---
       function viewNav() {
-        return renderNavHtml({ active: 'create', user: S.user?.username ?? null });
+        return renderNavHtml({
+          active: S.screen === 'admin' ? 'admin' : 'create',
+          user: S.user?.username ?? null,
+          isAdmin: !!S.user?.is_admin,
+        });
       }
 
       function viewLanding() {
@@ -190,7 +244,7 @@
             : `<ul class="list">${S.routes
                 .map(
                   (r) => `<li>
-                    <span><strong>${esc(r.name)}</strong> ${statusBadge(r.status)}</span>
+                    <span><strong>${esc(r.name)}</strong> ${displayStatusBadge(r)}</span>
                     <button class="ghost small" data-action="open" data-id="${r.id}">Öffnen</button>
                   </li>`,
                 )
@@ -230,16 +284,18 @@
                 .join('')}</ul>`;
 
         const code = r.route_code;
+        // Ob der Code Mitsucher tatsächlich reinlässt, steuert jetzt ausschließlich der
+        // Umschalter in "Routen-Steuerung" (Bug 1/5) — hier nur noch Code + Kopieren +
+        // Neuer Code + Zum-Mitsuchen (Bug 1/2), keine eigene Aktivieren/Deaktivieren-Logik.
         const codeSection = code
-          ? `<div class="row between wrap">
+          ? `<div class="row wrap">
                <span class="code">${esc(code)}</span>
                <button type="button" class="ghost small" data-action="copy-code">📋 Kopieren</button>
-               <span class="badge ${r.route_code_active ? 'on' : 'off'}">${r.route_code_active ? 'aktiv' : 'deaktiviert'}</span>
              </div>
-             <p class="muted">Mitsucher öffnen <a href="search.html">search.html</a> und geben diesen Code ein (Groß-/Kleinschreibung egal).</p>
+             <p class="muted">Code zum Beitreten für Mitsucher.</p>
              <div class="row wrap">
                <button class="ghost small" data-action="code-renew">Neuer Code</button>
-               ${r.route_code_active ? '<button class="danger small" data-action="code-deactivate">Deaktivieren</button>' : '<button class="ghost small" data-action="code-create">Reaktivieren</button>'}
+               <a class="accent small" href="search.html">🔍 Zum Mitsuchen</a>
              </div>`
           : `<p class="muted">Noch kein Code (ältere Route). Erzeuge einen, um Mitsucher einzuladen.</p>
              <button class="ghost small" data-action="code-create">Code erzeugen</button>`;
@@ -251,15 +307,20 @@
                 (${formatDms(d.lat, true)} ${formatDms(d.lng, false)})</p>`
             : `<p class="muted">Noch keine Position gewählt.</p>`;
 
-        const startControl =
-          r.status === 'such_modus'
-            ? `<button class="ghost block" disabled>✅ Route aktiv</button>`
-            : `<button class="accent block" data-action="start">Suche starten</button>`;
+        // Tri-State-Umschalter (Bugs 1/3/5): EIN Button führt durch
+        // Erstellung -> Aktiv -> Deaktiviert -> Aktiv, statt getrennter, teils toter
+        // Buttons für status und route_code_active.
+        const displayStatus = deriveRouteDisplayStatus(r);
+        const completed = !!S.progress?.completed_at;
+        const controlButton = {
+          erstellung: `<button class="accent block" data-action="start">Route aktivieren</button>`,
+          aktiv: `<button class="danger block" data-action="code-deactivate">Route deaktivieren</button>`,
+          deaktiviert: `<button class="accent block" data-action="code-activate">Route wieder aktivieren</button>`,
+        }[displayStatus];
 
         return `
-          <div class="row between">
+          <div class="row">
             <button class="ghost small" data-action="back">← Zurück</button>
-            ${statusBadge(r.status)}
           </div>
           <h1>${esc(r.name)}</h1>
 
@@ -279,7 +340,6 @@
                 <button type="button" class="ghost" data-action="use-location">📍 Aktuellen Standort verwenden</button>
                 <button type="button" class="ghost" data-action="open-map-picker">🗺️ Punkt auf Karte auswählen</button>
               </div>
-              <p class="muted" style="font-size:.78rem">Tipp: Erst „Aktuellen Standort verwenden", dann auf der Karte feinjustieren.</p>
               ${positionLine}
             </div>
 
@@ -294,10 +354,80 @@
           <div class="card stack">
             <h3>Routen-Steuerung</h3>
             <div class="row wrap">
-              ${startControl}
+              ${displayStatusBadge(r)}
+              ${completed ? '<span class="badge on">✅ Abgeschlossen</span>' : ''}
+            </div>
+            <div class="row wrap">
+              ${controlButton}
               <button class="ghost block" data-action="reset">Zurücksetzen</button>
             </div>
             <button class="danger" data-action="delete-route">Route löschen</button>
+          </div>
+          ${S.info ? `<p class="info">${esc(S.info)}</p>` : ''}
+          ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
+      }
+
+      // Admin-Panel (Frage 6): volle Übersicht über ALLE Routen/Nutzer, nicht nur die
+      // eigenen. Getrennte Endpunkte (/api/admin/*), damit die Owner-Isolation der
+      // normalen Routen-Endpunkte unangetastet bleibt.
+      function viewAdmin() {
+        const { routes, users } = S.admin;
+        const routeRows = routes.length
+          ? routes
+              .map(
+                (r) => `<tr>
+                  <td>${esc(r.name)}</td>
+                  <td>${esc(r.owner_username)}</td>
+                  <td>${displayStatusBadge(r)}</td>
+                  <td class="muted" style="font-size:.78rem">${esc(r.route_code || '—')}</td>
+                  <td>
+                    <div class="row wrap">
+                      <button class="ghost small" data-action="admin-code-renew" data-id="${r.id}">Neuer Code</button>
+                      ${
+                        r.route_code_active
+                          ? `<button class="ghost small" data-action="admin-code-deactivate" data-id="${r.id}">Deaktivieren</button>`
+                          : `<button class="ghost small" data-action="admin-code-activate" data-id="${r.id}">Aktivieren</button>`
+                      }
+                      <button class="danger small" data-action="admin-route-delete" data-id="${r.id}">Löschen</button>
+                    </div>
+                  </td>
+                </tr>`,
+              )
+              .join('')
+          : `<tr><td colspan="5" class="muted">Keine Routen vorhanden.</td></tr>`;
+
+        const userRows = users
+          .map(
+            (u) => `<tr>
+              <td>${esc(u.username)}${u.is_admin ? ' <span class="badge on">Admin</span>' : ''}</td>
+              <td>${u.route_count}</td>
+              <td>${u.id === S.user.id ? '<span class="muted">(du)</span>' : `<button class="danger small" data-action="admin-user-delete" data-id="${u.id}">Löschen</button>`}</td>
+            </tr>`,
+          )
+          .join('');
+
+        return `
+          <div class="row"><button class="ghost small" data-action="back">← Zurück</button></div>
+          <h1>⚙️ Admin</h1>
+
+          <div class="card stack">
+            <h3>Alle Routen (${routes.length})</h3>
+            <div style="overflow-x:auto">
+              <table class="admin-table">
+                <thead><tr><th>Name</th><th>Ersteller</th><th>Status</th><th>Code</th><th>Aktionen</th></tr></thead>
+                <tbody>${routeRows}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card stack">
+            <h3>Alle Nutzer (${users.length})</h3>
+            <div style="overflow-x:auto">
+              <table class="admin-table">
+                <thead><tr><th>Nutzername</th><th>Routen</th><th>Aktionen</th></tr></thead>
+                <tbody>${userRows}</tbody>
+              </table>
+            </div>
           </div>
           ${S.info ? `<p class="info">${esc(S.info)}</p>` : ''}
           ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
@@ -313,6 +443,7 @@
         else if (S.screen === 'auth') body = viewAuth();
         else if (S.screen === 'routes') body = viewRoutes();
         else if (S.screen === 'route') body = viewRoute();
+        else if (S.screen === 'admin') body = viewAdmin();
         app.innerHTML = viewNav() + body;
         wireNavToggle();
       }
@@ -340,6 +471,10 @@
             // Schon auf index.html: kein Seiten-Reload, direkt in den Owner-Bereich springen.
             e.preventDefault();
             guard(enterOwnerArea);
+          } else if (kind === 'admin') {
+            // Schon auf index.html: kein Seiten-Reload, direkt ins Admin-Panel springen.
+            e.preventDefault();
+            guard(loadAdmin);
           }
           return;
         }
@@ -429,11 +564,22 @@
             }),
           'code-create': () => call(() => api.createCode(rid)),
           'code-renew': () => call(() => api.renewCode(rid)),
-          'code-deactivate': () => call(() => api.deactivateCode(rid)),
+          'code-deactivate': () =>
+            guard(async () => {
+              await api.deactivateCode(rid);
+              S.info = 'Route deaktiviert — der Code lässt niemanden mehr rein.';
+              await refreshRoute();
+            }),
+          'code-activate': () =>
+            guard(async () => {
+              await api.activateCode(rid);
+              S.info = 'Route wieder aktiv — Mitsucher können mit dem Code beitreten.';
+              await refreshRoute();
+            }),
           start: () =>
             guard(async () => {
               await api.startRoute(rid);
-              S.info = 'Route gestartet — Mitsucher können jetzt mit dem Code beitreten.';
+              S.info = 'Route ist jetzt aktiv — Mitsucher können mit dem Code beitreten.';
               await refreshRoute();
             }),
           reset: () => {
@@ -446,6 +592,37 @@
               await loadRoutes();
             });
           },
+
+          // --- Admin (Frage 6) ---
+          'admin-route-delete': () => {
+            if (!confirm('Diese Route wirklich löschen? Das kann nicht rückgängig gemacht werden.')) return;
+            guard(async () => {
+              await api.adminDeleteRoute(id);
+              await refreshAdmin();
+            });
+          },
+          'admin-user-delete': () => {
+            if (!confirm('Diesen Nutzer wirklich löschen? Alle seine Routen werden mitgelöscht — nicht rückgängig zu machen.')) return;
+            guard(async () => {
+              await api.adminDeleteUser(id);
+              await refreshAdmin();
+            });
+          },
+          'admin-code-renew': () =>
+            guard(async () => {
+              await api.adminRenewCode(id);
+              await refreshAdmin();
+            }),
+          'admin-code-activate': () =>
+            guard(async () => {
+              await api.adminActivateCode(id);
+              await refreshAdmin();
+            }),
+          'admin-code-deactivate': () =>
+            guard(async () => {
+              await api.adminDeactivateCode(id);
+              await refreshAdmin();
+            }),
         };
         actions[action]?.();
       });

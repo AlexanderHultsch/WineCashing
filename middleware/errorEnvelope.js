@@ -23,6 +23,7 @@ export const ERR = {
   UNAUTHENTICATED:       [401, 'UNAUTHENTICATED'],
   VALIDATION:            [400, 'VALIDATION'],
   RATE_LIMITED:          [429, 'RATE_LIMITED'],
+  SELF_DELETE_FORBIDDEN: [400, 'SELF_DELETE_FORBIDDEN'],
 };
 
 export function apiError(key, message) {

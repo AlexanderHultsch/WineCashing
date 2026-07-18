@@ -172,5 +172,19 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
     res.json({ active: false });
   });
 
+  // Reaktiviert den bestehenden Code (Bug-Fix: der alte "code"-Endpunkt tat das NICHT,
+  // er gab bei existierendem Code nur den aktuellen Zustand zurück). Erzeugt einen Code,
+  // falls die Route (Alt-Route) noch keinen hat.
+  router.post('/:routeId/code/activate', owner, (req, res) => {
+    if (!req.route.route_code) {
+      const code = generateUniqueCode(repo, generateCode);
+      const route = repo.setRouteCode(req.route.id, code, true);
+      res.json({ route_code: route.route_code, active: true });
+      return;
+    }
+    repo.setRouteCodeActive(req.route.id, true);
+    res.json({ route_code: req.route.route_code, active: true });
+  });
+
   return router;
 }

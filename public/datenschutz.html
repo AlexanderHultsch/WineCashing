@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Wine Caching — Info &amp; Datenschutz: welche Daten verarbeitet werden und wer welche Rechte hat." />
+    <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#17130f" media="(prefers-color-scheme: dark)" />
+    <title>Wine Caching — Info &amp; Datenschutz</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <main class="app" id="app">
+      <noscript><p class="error">Diese Seite benötigt JavaScript für die Navigation — der Inhalt bleibt aber auch so lesbar.</p></noscript>
+      <div id="nav-container"></div>
+
+      <h1>ℹ️ Info &amp; Datenschutz</h1>
+      <p class="muted">
+        Wine Caching ist ein privates Projekt für den Freundeskreis — kein kommerzieller Dienst. Diese Seite erklärt
+        transparent, welche Daten verarbeitet werden, wo sie bleiben und wer welche Rechte hat.
+      </p>
+
+      <div class="card stack">
+        <h3>📍 Standort &amp; Kompass</h3>
+        <p>
+          Dein Standort und die Kompass-Ausrichtung werden <strong>ausschließlich auf deinem Gerät</strong> verarbeitet,
+          um dich im Such-Modus zum Wegpunkt zu führen. Sie werden <strong>nicht an den Server gesendet</strong> — weder
+          beim regelmäßigen Aktualisieren des Suchstatus noch beim Melden von „Gefunden"/„Übersprungen" (dabei wird
+          lediglich ein Zeitstempel fürs Logging übertragen, keine Koordinate).
+        </p>
+        <p>
+          Beim <strong>Anlegen</strong> einer Route nutzt der Ersteller seinen eigenen Standort, um Wegpunkte auf der
+          Karte zu platzieren. Gespeichert werden dabei nur die bewusst gewählten Wegpunkt-Koordinaten — nicht der
+          fortlaufende Standort des Erstellers.
+        </p>
+      </div>
+
+      <div class="card stack">
+        <h3>🍪 Cookies &amp; lokaler Speicher</h3>
+        <p>
+          Ersteller erhalten beim Login ein <strong>technisch notwendiges Session-Cookie</strong> (httpOnly), damit der
+          Server weiß, wer eingeloggt ist. Es dient keinem Tracking und keiner Werbung.
+        </p>
+        <p>
+          Mitsucher benötigen kein Konto. Der eingegebene <strong>Routen-Code</strong> wird lokal im Browser
+          (<code>localStorage</code>) gespeichert, damit die Suche nach einem Neuladen der Seite fortgesetzt werden kann
+          — er verlässt dein Gerät nur als Zugangs-Nachweis für die von dir selbst gewählte Route.
+        </p>
+      </div>
+
+      <div class="card stack">
+        <h3>🗺️ Kartenkacheln (OpenStreetMap)</h3>
+        <p>
+          Die Karten-Auswahl beim Anlegen von Wegpunkten nutzt <strong>OpenStreetMap</strong>-Kartenkacheln. Beim Laden
+          der Karte wird dein Browser Kacheln direkt von OSM-Servern anfragen — dabei ist wie bei jedem Web-Abruf deine
+          IP-Adresse für diesen Server sichtbar. Es werden keine weiteren Daten (Konto, Standort, Wegpunkte) an OSM
+          übertragen. Alle übrige Software (Leaflet-Bibliothek, restliche Seite) läuft selbst gehostet, ohne weitere
+          externe Server.
+        </p>
+      </div>
+
+      <div class="card stack">
+        <h3>⚙️ Admin-Rechte</h3>
+        <p>
+          Einzelne Nutzer-Konten können als <strong>Administrator</strong> eingerichtet werden. Ein Administrator kann:
+        </p>
+        <ul>
+          <li>alle Routen aller Nutzer einsehen (Name, Status, Ersteller, Routen-Code) und löschen,</li>
+          <li>Routen-Codes fremder Routen aktivieren, deaktivieren oder neu erzeugen,</li>
+          <li>alle Nutzerkonten einsehen (inkl. Anzahl ihrer Routen) und löschen,</li>
+          <li>Passwörter zurücksetzen.</li>
+        </ul>
+        <p class="muted">
+          Diese weitreichenden Rechte sind für die private Verwaltung des Freundeskreis-Projekts nötig (z. B. um
+          verwaiste Routen aufzuräumen) und werden hier bewusst offengelegt, statt sie zu verstecken.
+        </p>
+      </div>
+
+      <div class="card stack">
+        <h3>📄 Offizielles Datenschutzdokument</h3>
+        <p class="muted">
+          Die vollständige, rechtlich verbindliche Datenschutzerklärung wird auf der Haupt-Domain veröffentlicht.
+          Diese ist aktuell noch im Aufbau — der Link wird nachgereicht, sobald das Dokument dort verfügbar ist.
+        </p>
+        <a class="ghost block" style="text-decoration:none; text-align:center" href="#" aria-disabled="true"
+          >🔗 Offizielle Datenschutzerklärung (folgt)</a
+        >
+      </div>
+    </main>
+
+    <script type="module">
+      import { renderNavHtml, wireNavToggle } from './js/nav.js';
+      import { api } from './js/api.js';
+
+      function renderNav(user) {
+        document.getElementById('nav-container').innerHTML = renderNavHtml({
+          active: 'info',
+          user: user?.username ?? null,
+          isAdmin: !!user?.is_admin,
+        });
+        wireNavToggle();
+        document.querySelector('[data-nav="logout"]')?.addEventListener('click', async () => {
+          try {
+            await api.logout();
+          } catch {
+            /* ignorieren: egal ob der Logout-Request fehlschlägt, Nav zeigt "ausgeloggt" */
+          }
+          renderNav(null);
+        });
+        document.querySelector('[data-nav="login"]')?.addEventListener('click', () => {
+          window.location.href = 'index.html';
+        });
+      }
+
+      renderNav(null);
+      // Rein für die Nav-Anzeige (Login-Status/Admin-Menüpunkt) — der Inhalt dieser Seite
+      // ist unabhängig vom Login-Status immer derselbe.
+      api
+        .me()
+        .then((me) => renderNav(me.user))
+        .catch(() => {
+          /* nicht eingeloggt - Nav zeigt "Login" */
+        });
+    </script>
+  </body>
+</html>

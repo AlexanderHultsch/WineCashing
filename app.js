@@ -10,6 +10,7 @@ import { createRateLimiter } from './middleware/rateLimit.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createRoutesRouter } from './routes/routes.js';
 import { createProgressRouter } from './routes/progress.js';
+import { createAdminRouter } from './routes/admin.js';
 
 import { hashPassword as defaultHash, verifyPassword as defaultVerify } from './lib/password.js';
 import { generateRouteCode as defaultGenerateCode } from './lib/routeCode.js';
@@ -61,6 +62,7 @@ export function createApp(deps) {
   app.use('/api/auth', createAuthRouter({ repo, auth, hashPassword, verifyPassword, newId, now, rateLimiter }));
   app.use('/api', createProgressRouter({ repo, auth, now }));
   app.use('/api/routes', createRoutesRouter({ repo, auth, newId, now, generateCode }));
+  app.use('/api/admin', createAdminRouter({ repo, auth, generateCode }));
 
   // Unbekannte API-Pfade -> einheitlicher 404-Umschlag.
   app.use('/api', (_req, _res, next) => next(apiError('NOT_FOUND', 'Endpunkt nicht gefunden.')));

@@ -106,8 +106,9 @@
 
       // --- Nav (gemeinsam mit index.html, zeigt hier "Mitsuchen" als aktive Seite) ---
       let navUser = null;
+      let navIsAdmin = false;
       function renderNav() {
-        $('nav-container').innerHTML = renderNavHtml({ active: 'search', user: navUser });
+        $('nav-container').innerHTML = renderNavHtml({ active: 'search', user: navUser, isAdmin: navIsAdmin });
         wireNavToggle();
         document.querySelector('[data-nav="logout"]')?.addEventListener('click', async () => {
           try {
@@ -130,6 +131,7 @@
         .me()
         .then((me) => {
           navUser = me.user.username;
+          navIsAdmin = !!me.user.is_admin;
           renderNav();
         })
         .catch(() => {
@@ -153,7 +155,7 @@
           // (Vertrag 6.1: keine Scheinpräzision) statt kaufmännisch runden.
           const bottles = vm.bottles == null ? '–' : Math.max(0, Math.ceil(vm.bottles)).toLocaleString('de-DE');
           $('dist-bottles').textContent = bottles;
-          $('dist-meters').textContent = vm.distanceMeters == null ? 'Suche Signal …' : `≈ ${meterFormat(vm.distanceMeters)} m Luftlinie`;
+          $('dist-meters').textContent = vm.distanceMeters == null ? 'Suche Signal …' : `≈ ${meterFormat(vm.distanceMeters)} m`;
 
           const hintEl = $('hint');
           if (vm.hintRevealed && vm.activeWaypoint?.hint_text) {

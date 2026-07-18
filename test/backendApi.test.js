@@ -156,6 +156,36 @@ test('Mitsucher: join -> state -> found (idempotent) -> completed; deactivate sp
   }
 });
 
+test('Code: deaktivieren dann aktivieren -> Mitsucher wieder zugelassen (Bug-1-Regression)', async () => {
+  const be = await bootBackend();
+  try {
+    const c = await withOwner(be);
+    const routeId = (await c.post('/api/routes', { name: 'R' })).body.id;
+    const created = await c.get(`/api/routes/${routeId}`);
+    const code = created.body.route_code;
+
+    let r = await c.post(`/api/routes/${routeId}/code/deactivate`);
+    assert.deepEqual(r.body, { active: false });
+
+    const searcher = createClient(be.url);
+    const codeHeader = { 'X-Route-Code': code };
+    r = await searcher.post('/api/join', { route_code: code });
+    assert.equal(r.status, 403);
+    assert.equal(r.body.error.code, 'ROUTE_ACCESS_REVOKED');
+
+    // Der alte "/code"-Endpunkt reaktivierte NICHT (Bug 1) — /code/activate muss das tun.
+    r = await c.post(`/api/routes/${routeId}/code/activate`);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.active, true);
+    assert.equal(r.body.route_code, code);
+
+    r = await searcher.post('/api/join', { route_code: code }, codeHeader);
+    assert.equal(r.status, 200);
+  } finally {
+    await be.close();
+  }
+});
+
 test('join: unbekannter Code -> 404 CODE_NOT_FOUND', async () => {
   const be = await bootBackend();
   try {

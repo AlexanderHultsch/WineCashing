@@ -16,7 +16,8 @@ function assert(cond, msg) {
 }
 
 const db = openDatabase(':memory:');
-const app = createApp({ repo: createRepository(db), enableRateLimit: false, secureCookie: false });
+const repo = createRepository(db);
+const app = createApp({ repo, enableRateLimit: false, secureCookie: false });
 const server = await new Promise((r) => {
   const s = app.listen(0, () => r(s));
 });
@@ -107,10 +108,22 @@ try {
   assert(true, 'Wegpunkt nach Korrektur erfolgreich hinzugefügt');
 
   await p.click('[data-action="start"]');
-  await p.waitForFunction(() => document.querySelector('.badge')?.textContent?.includes('Such-Modus'));
-  assert(true, 'Route gestartet (Such-Modus)');
-  await p.waitForSelector('button:disabled:has-text("Route aktiv")');
-  assert(true, '"Suche starten" wird nach dem Start zu einem deaktivierten "Route aktiv"-Button');
+  await p.waitForFunction(() => document.querySelector('.badge')?.textContent?.includes('Aktiv'));
+  assert(true, 'Route gestartet -> Status-Badge "Aktiv" in der Routen-Steuerung (Bug 3)');
+  await p.waitForSelector('[data-action="code-deactivate"]');
+  assert(true, '"Route aktivieren" wird nach dem Start zum "Route deaktivieren"-Umschalter (Bugs 1/5)');
+
+  // Deaktivieren -> Status "Deaktiviert", Umschalter dreht auf "Route wieder aktivieren".
+  await p.click('[data-action="code-deactivate"]');
+  await p.waitForFunction(() => document.querySelector('.badge')?.textContent?.includes('Deaktiviert'));
+  await p.waitForSelector('[data-action="code-activate"]');
+  assert(true, 'Route deaktivieren -> Badge "Deaktiviert" + Reaktivieren-Umschalter (Bug 5)');
+
+  // Reaktivieren MUSS wieder greifen (Bug 1: früher blieb der Button wirkungslos grau).
+  await p.click('[data-action="code-activate"]');
+  await p.waitForFunction(() => document.querySelector('.badge')?.textContent?.includes('Aktiv'));
+  await p.waitForSelector('[data-action="code-deactivate"]');
+  assert(true, 'Route wieder aktivieren funktioniert -> Badge "Aktiv" (Bug 1 behoben)');
 
   // --- Mitsucher ---
   const searcher = await browser.newContext({ permissions: ['geolocation'], geolocation: NEAR });
@@ -175,7 +188,55 @@ try {
   await s.waitForSelector('#screen-join:not(.hidden)');
   assert(true, '„Verlassen" führt zurück zur Code-Eingabe');
 
-  console.log('\n✅ E2E erfolgreich: Owner + Mitsucher + Backend im echten Browser.');
+  // --- Info & Datenschutz (Bug 7): aus dem Burger-Menü erreichbar, nennt Admin-Rechte. ---
+  await p.click('#nav-toggle');
+  await p.waitForSelector('#nav-menu:not(.hidden)');
+  const infoLink = p.locator('.nav-menu a', { hasText: 'Datenschutz' });
+  assert(await infoLink.isVisible(), 'Nav enthält "Info & Datenschutz" (Bug 7)');
+  await infoLink.click();
+  await p.waitForSelector('h1:has-text("Info")');
+  assert((await p.textContent('body')).includes('Admin'), 'Datenschutz-Seite nennt die Admin-Rechte explizit (Bug 7)');
+  assert((await p.textContent('body')).includes('nicht an den Server gesendet'), 'Datenschutz-Seite nennt: Standort bleibt auf dem Gerät');
+
+  // --- Admin-Panel (Frage 6): Nutzer zum Admin machen, Panel im echten Browser prüfen. ---
+  console.log('Admin:');
+  const adminOwner = await repo.getUserByUsername('e2e-owner');
+  repo.setUserAdmin(adminOwner.id, true);
+
+  const admin = await browser.newContext();
+  const a = await admin.newPage();
+  a.on('dialog', (d) => d.accept()); // Lösch-Bestätigungen automatisch bestätigen
+  await a.goto(`${base}/index.html`);
+  await a.waitForSelector('[data-action="enter-owner"]');
+  await a.click('[data-action="enter-owner"]');
+  await a.waitForSelector('[data-action="mode-login"], [data-action="submit-auth"]');
+  await a.fill('#username', 'e2e-owner');
+  await a.fill('#password', 'geheim123');
+  await a.click('[data-action="submit-auth"]');
+  await a.waitForSelector('[data-action="create-route"]');
+
+  await a.click('#nav-toggle');
+  await a.waitForSelector('#nav-menu:not(.hidden)');
+  const adminLink = a.locator('.nav-menu a', { hasText: 'Admin' });
+  assert(await adminLink.isVisible(), 'Admin-Menüpunkt nur für is_admin sichtbar (Frage 6)');
+  await adminLink.click();
+  await a.waitForSelector('h1:has-text("Admin")');
+  assert(true, 'Admin-Panel öffnet sich');
+  await a.waitForSelector('.admin-table');
+  const adminBody = await a.textContent('body');
+  assert(adminBody.includes('E2E-Runde'), 'Admin sieht die Route in der Routen-Tabelle (mit Ersteller/Status/Code)');
+  assert(adminBody.includes('e2e-owner'), 'Admin sieht die Nutzerliste');
+  // Neuer Code für die fremde Route über das Admin-Panel.
+  const codeCellBefore = await a.locator('.admin-table td').filter({ hasText: CODE_RE }).first().textContent();
+  await a.click('[data-action="admin-code-renew"]');
+  await a.waitForFunction(
+    (before) => !document.body.textContent.includes(before.trim()),
+    codeCellBefore,
+    { timeout: 5000 },
+  );
+  assert(true, 'Admin kann für eine fremde Route einen neuen Code erzeugen (Frage 6)');
+
+  console.log('\n✅ E2E erfolgreich: Owner + Mitsucher + Admin + Backend im echten Browser.');
 } finally {
   await browser.close();
   await new Promise((r) => server.close(r));

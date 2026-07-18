@@ -104,6 +104,16 @@ export const api = {
   createCode: (id) => apiFetch(`/routes/${id}/code`, { method: 'POST' }),
   renewCode: (id) => apiFetch(`/routes/${id}/code/renew`, { method: 'POST' }),
   deactivateCode: (id) => apiFetch(`/routes/${id}/code/deactivate`, { method: 'POST' }),
+  activateCode: (id) => apiFetch(`/routes/${id}/code/activate`, { method: 'POST' }),
+
+  // Admin (Frage 6) — nur is_admin, sieht/verwaltet ALLE Routen & Nutzer.
+  adminListRoutes: () => apiFetch('/admin/routes'),
+  adminListUsers: () => apiFetch('/admin/users'),
+  adminDeleteRoute: (id) => apiFetch(`/admin/routes/${id}`, { method: 'DELETE' }),
+  adminDeleteUser: (id) => apiFetch(`/admin/users/${id}`, { method: 'DELETE' }),
+  adminRenewCode: (id) => apiFetch(`/admin/routes/${id}/code/renew`, { method: 'POST' }),
+  adminActivateCode: (id) => apiFetch(`/admin/routes/${id}/code/activate`, { method: 'POST' }),
+  adminDeactivateCode: (id) => apiFetch(`/admin/routes/${id}/code/deactivate`, { method: 'POST' }),
 
   // Beitritt & Zustand (Vertrag A.5)
   join: (code) => apiFetch('/join', { method: 'POST', body: { route_code: code } }),
