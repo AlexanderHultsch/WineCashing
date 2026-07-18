@@ -58,7 +58,8 @@ body {
   max-width: 560px;
   margin: 0 auto;
   padding: 16px;
-  min-height: 100dvh;
+  min-height: 100vh; /* Fallback für Browser ohne dvh-Unterstützung (< 2023) */
+  min-height: 100dvh; /* berücksichtigt ein-/ausblendende mobile Adressleisten korrekt */
   display: flex;
   flex-direction: column;
 }
@@ -261,6 +262,7 @@ button:disabled {
   background: var(--surface-2);
 }
 .nav-menu .nav-item.active {
+  background: var(--surface-2); /* Fallback ohne color-mix() (Safari < 16.2, Chrome < 111) */
   background: color-mix(in srgb, var(--wine) 14%, transparent);
   color: var(--wine);
   font-weight: 700;
@@ -289,10 +291,12 @@ button:disabled {
   letter-spacing: 0.03em;
 }
 .badge.on {
+  background: var(--surface-2); /* Fallback ohne color-mix() (Safari < 16.2, Chrome < 111) */
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--accent);
 }
 .badge.off {
+  background: var(--surface-2);
   background: color-mix(in srgb, var(--danger) 18%, transparent);
   color: var(--danger);
 }
@@ -310,6 +314,10 @@ button:disabled {
 /* Karten-Auswahl (Owner-UI: Wegpunkt-Position per Leaflet-Karte wählen) */
 .map-overlay {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0; /* Fallback ohne inset (Safari < 14.1) */
   inset: 0;
   z-index: 100;
   background: rgba(0, 0, 0, 0.5);
@@ -328,6 +336,7 @@ button:disabled {
 }
 .map-picker {
   width: 100%;
+  height: 420px; /* Fallback ohne min() (Safari < 13.1) */
   height: min(50vh, 420px);
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -336,6 +345,7 @@ button:disabled {
 /* Such-Modus */
 .compass {
   position: relative;
+  width: 300px; /* Fallback ohne min() (Safari < 13.1) */
   width: min(74vw, 300px);
   aspect-ratio: 1;
   margin: 8px auto;
@@ -347,6 +357,7 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 .needle {
+  font-size: 90px; /* Fallback ohne clamp() (Safari < 13.1) */
   font-size: clamp(64px, 22vw, 120px);
   line-height: 1;
   transition: transform 0.2s ease-out;

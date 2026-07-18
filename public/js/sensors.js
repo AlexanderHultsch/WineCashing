@@ -91,14 +91,37 @@ export function watchOrientation(onSample) {
 }
 
 // Bildschirm während der Suche wachhalten (Screen Wake Lock API). Gibt { supported, release } zurück.
+// Der Browser gibt den Wake-Lock automatisch frei, sobald der Tab in den Hintergrund geht
+// (App-Wechsel, Bildschirm kurz aus) — deshalb wird er hier bei Rückkehr (visibilitychange ->
+// visible) automatisch neu angefordert, bis release() aufgerufen wird. Ohne das dimmt der
+// Bildschirm nach dem ersten App-Wechsel mitten in der Suche dauerhaft wieder ab.
 export async function requestWakeLock() {
   if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
     return { supported: false, release: () => {} };
   }
-  try {
-    const sentinel = await navigator.wakeLock.request('screen');
-    return { supported: true, sentinel, release: () => sentinel.release?.() };
-  } catch (err) {
-    return { supported: false, release: () => {}, error: err };
-  }
+
+  let sentinel = null;
+  let released = false;
+  const acquire = async () => {
+    try {
+      sentinel = await navigator.wakeLock.request('screen');
+    } catch {
+      sentinel = null; // z. B. Energiesparmodus — Suche funktioniert trotzdem
+    }
+  };
+  const onVisible = () => {
+    if (!released && document.visibilityState === 'visible') acquire();
+  };
+
+  await acquire();
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
+
+  return {
+    supported: sentinel != null,
+    release: () => {
+      released = true;
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
+      sentinel?.release?.();
+    },
+  };
 }

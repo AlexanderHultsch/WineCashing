@@ -185,10 +185,17 @@ export function smoothPosition(recentSamples, newSample, config = CONFIG) {
 // kurzer Distanz zum Ziel große Bearing-Sprünge). smoothingFactor=1 -> ungeglättet (Rohwert),
 // kleinere Werte -> träger. `null` als vorheriger Wert -> erster Wert wird direkt übernommen
 // (kein künstliches "Einschwingen" von 0 beim allerersten Sample).
+//
+// WICHTIG: Der Rückgabewert ist KONTINUIERLICH (nicht auf [0..360) normalisiert) und muss
+// unverändert als prevRotation zurückgereicht werden. Grund: Die Nadel wird per CSS-Transition
+// auf `rotate(Xdeg)` animiert — würde der Wert beim 0/360-Übergang normalisiert (z. B. 359.8 ->
+// 0.2), animiert CSS den numerischen Weg RÜCKWÄRTS über fast 360°, und die Flasche dreht
+// sichtbar eine volle Runde. Mit kontinuierlichen Werten (359.8 -> 360.2) bleibt die Animation
+// immer der kurze Weg. `rotate(3600deg)` ist für CSS problemlos gültig.
 export function smoothRotation(prevRotation, newRotation, smoothingFactor = CONFIG.ROTATION_SMOOTHING) {
   if (prevRotation == null) return normalize360(newRotation);
   const shortestDiff = ((normalize360(newRotation) - normalize360(prevRotation) + 540) % 360) - 180;
-  return normalize360(prevRotation + shortestDiff * smoothingFactor);
+  return prevRotation + shortestDiff * smoothingFactor;
 }
 
 // --- Ableitungen fürs UI ---

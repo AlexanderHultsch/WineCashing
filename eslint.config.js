@@ -66,6 +66,7 @@ export default [
         clearInterval: 'readonly',
         performance: 'readonly',
         DeviceOrientationEvent: 'readonly',
+        AbortController: 'readonly',
         L: 'readonly', // Leaflet, vendored + <script>-geladen (public/vendor/leaflet/)
       },
     },

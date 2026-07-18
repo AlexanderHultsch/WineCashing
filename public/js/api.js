@@ -33,7 +33,12 @@ export function clearRouteCode() {
   }
 }
 
-export async function apiFetch(path, { method = 'GET', body, headers = {} } = {}) {
+// Standard-Timeout: lang genug für zähes Mobilfunknetz, kurz genug, dass die UI nicht
+// endlos "hängt". Ein Timeout wirft OHNE .status — alle Aufrufer behandeln das bereits
+// als Netzwerkfehler (Code behalten, Offline-Pfad), genau wie einen Verbindungsabbruch.
+export const REQUEST_TIMEOUT_MS = 15000;
+
+export async function apiFetch(path, { method = 'GET', body, headers = {}, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   const opts = { method, headers: { ...headers }, credentials: 'same-origin' };
   if (body !== undefined) {
     opts.headers['content-type'] = 'application/json';
@@ -42,7 +47,22 @@ export async function apiFetch(path, { method = 'GET', body, headers = {} } = {}
   const code = getRouteCode();
   if (code) opts.headers['X-Route-Code'] = code;
 
-  const res = await fetch(API_BASE + path, opts);
+  const aborter = new AbortController();
+  const timer = setTimeout(() => aborter.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(API_BASE + path, { ...opts, signal: aborter.signal });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const timeoutErr = new Error('Zeitüberschreitung — bitte erneut versuchen.');
+      timeoutErr.code = 'TIMEOUT';
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
   const text = await res.text();
   let data = null;
   if (text) {

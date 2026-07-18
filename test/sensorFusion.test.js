@@ -136,10 +136,21 @@ test('smoothRotation: erster Wert wird direkt übernommen (kein Einschwingen von
 });
 
 test('smoothRotation: nimmt den kürzeren Weg um den Kreis (0/360-Übergang)', () => {
-  // 350 -> 10 ist "kurz vorwärts durch 0" (+20°), nicht rückwärts durch 180° (-340°).
-  assert.equal(smoothRotation(350, 10, 0.5), 0);
-  // 10 -> 350 ist "kurz rückwärts durch 0" (-20°), nicht vorwärts durch 180°.
+  // 350 -> 10 ist "kurz vorwärts durch 0" (+20°): Ergebnis 360 (kontinuierlich, ≡ 0°).
+  assert.equal(smoothRotation(350, 10, 0.5), 360);
+  // 10 -> 350 ist "kurz rückwärts durch 0" (-20°): Ergebnis 0, nicht vorwärts durch 180°.
   assert.equal(smoothRotation(10, 350, 0.5), 0);
+});
+
+test('smoothRotation: Ausgabe bleibt KONTINUIERLICH über den 0/360-Übergang (CSS dreht nie rückwärts)', () => {
+  // Regression: normalisierte Ausgabe (359.8 -> 0.2) ließe die CSS-Transition den numerischen
+  // Weg rückwärts über ~340° animieren — sichtbare Vollrotation der Flasche. Kontinuierlich
+  // bleibt es bei +20° (350 -> 370), was optisch identisch zu 10° ist (370 ≡ 10 mod 360).
+  assert.equal(smoothRotation(350, 10, 1), 370); // NICHT 10
+  assert.equal(normalize360(smoothRotation(350, 10, 1)), 10); // optisch dasselbe wie 10°
+  // Kontinuierliche Werte funktionieren auch als prevRotation weiter (Wrap-Arithmetik intern).
+  assert.equal(smoothRotation(360, 20, 1), 380);
+  assert.equal(normalize360(smoothRotation(360, 20, 1)), 20);
 });
 
 test('smoothRotation: factor=1 ist ungeglättet (Rohwert), kleiner factor ist träger', () => {

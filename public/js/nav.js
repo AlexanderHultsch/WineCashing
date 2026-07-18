@@ -28,6 +28,11 @@ export function renderNavHtml({ active, user }) {
 
 // Generisches Auf-/Zuklappen + Klick-außerhalb-schließt. Muss nach jedem Neu-Rendern
 // des Nav-HTML erneut aufgerufen werden (die Elemente sind dann neu im DOM).
+// Der document-Listener wird dabei erst wieder ENTFERNT: index.html rendert bei jeder
+// Aktion neu — ohne das Entfernen sammeln sich dort mit jeder Interaktion weitere
+// document-Click-Listener an (Leck, das mit der Sitzungsdauer wächst).
+let outsideClickHandler = null;
+
 export function wireNavToggle() {
   const toggle = document.getElementById('nav-toggle');
   const menu = document.getElementById('nav-menu');
@@ -40,10 +45,12 @@ export function wireNavToggle() {
     toggle.setAttribute('aria-expanded', String(willOpen));
   });
 
-  document.addEventListener('click', (e) => {
+  if (outsideClickHandler) document.removeEventListener('click', outsideClickHandler);
+  outsideClickHandler = (e) => {
     if (!menu.classList.contains('hidden') && e.target !== toggle && !menu.contains(e.target)) {
       menu.classList.add('hidden');
       toggle.setAttribute('aria-expanded', 'false');
     }
-  });
+  };
+  document.addEventListener('click', outsideClickHandler);
 }

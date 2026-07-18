@@ -7,12 +7,64 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toOrientationSample, hasUsableHeading, watchOrientation } from '../public/js/sensors.js';
+import { toOrientationSample, hasUsableHeading, watchOrientation, requestWakeLock } from '../public/js/sensors.js';
 
 function fakeEvent(type, props) {
   const ev = new Event(type);
   Object.assign(ev, props);
   return ev;
+}
+
+// Simuliert navigator.wakeLock + document.visibilityState/-Events, ohne echten Browser.
+// Node hat seit v21 ein eingebautes, nur-lesbares globalThis.navigator (Web-Kompat-Shim) —
+// eine einfache Zuweisung schlägt daran fehl ("has only a getter"), daher per
+// Object.defineProperty überschreiben und danach wiederherstellen.
+function fakeWakeLockEnv() {
+  let requestCount = 0;
+  const listeners = {};
+  let visibilityState = 'visible';
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      wakeLock: {
+        request: async () => {
+          requestCount++;
+          return { release: async () => {} };
+        },
+      },
+    },
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'document', {
+    value: {
+      get visibilityState() {
+        return visibilityState;
+      },
+      addEventListener: (type, fn) => {
+        listeners[type] = fn;
+      },
+      removeEventListener: (type, fn) => {
+        if (listeners[type] === fn) delete listeners[type];
+      },
+    },
+    configurable: true,
+  });
+
+  return {
+    getRequestCount: () => requestCount,
+    setVisibility: (v) => {
+      visibilityState = v;
+      listeners.visibilitychange?.();
+    },
+    cleanup: () => {
+      if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+      else delete globalThis.navigator;
+      if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument);
+      else delete globalThis.document;
+    },
+  };
 }
 
 test('toOrientationSample: iOS erkannt über webkitCompassHeading', () => {
@@ -53,6 +105,31 @@ test('watchOrientation: Stub-Event mit alpha=null wird ignoriert (Regression)', 
     stop();
   } finally {
     delete globalThis.window;
+  }
+});
+
+test('requestWakeLock: fordert bei Rückkehr aus dem Hintergrund automatisch neu an', async () => {
+  const env = fakeWakeLockEnv();
+  try {
+    const wl = await requestWakeLock();
+    assert.equal(wl.supported, true);
+    assert.equal(env.getRequestCount(), 1);
+
+    // App-Wechsel: der Browser gibt den Wake-Lock selbst intern frei (hier nicht simuliert,
+    // nur der auslösende visibilitychange-Trigger). Rückkehr muss automatisch neu anfordern —
+    // ohne das dimmt der Bildschirm nach dem ersten App-Wechsel dauerhaft wieder ab.
+    env.setVisibility('hidden');
+    env.setVisibility('visible');
+    await new Promise((r) => setTimeout(r, 0)); // acquire() ist async
+    assert.equal(env.getRequestCount(), 2, 'Wake-Lock wird bei Rückkehr neu angefordert');
+
+    wl.release();
+    env.setVisibility('hidden');
+    env.setVisibility('visible');
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(env.getRequestCount(), 2, 'nach release() keine weitere automatische Neuanforderung mehr');
+  } finally {
+    env.cleanup();
   }
 });
 

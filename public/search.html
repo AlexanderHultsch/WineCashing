@@ -3,11 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Wine Caching — mit Routen-Code mitsuchen, ohne Konto." />
+    <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#17130f" media="(prefers-color-scheme: dark)" />
     <title>Wine Caching — Suche</title>
     <link rel="stylesheet" href="css/styles.css" />
   </head>
   <body>
     <main class="app" id="app">
+      <noscript><p class="error">Diese Seite benötigt JavaScript — bitte im Browser aktivieren.</p></noscript>
       <div id="nav-container"></div>
 
       <!-- Beitritt -->
@@ -17,10 +21,10 @@
         <div class="card stack">
           <div class="field">
             <label for="code">Routen-Code</label>
-            <input id="code" placeholder="Z. B. WC7F-K2PQ" autocapitalize="characters" autocomplete="off" spellcheck="false" />
+            <input id="code" placeholder="Z. B. WC7F-K2PQ" maxlength="9" enterkeyhint="go" autocapitalize="characters" autocomplete="off" spellcheck="false" />
           </div>
           <button id="btn-join" class="primary block">Beitreten</button>
-          <p id="join-error" class="error"></p>
+          <p id="join-error" class="error" role="alert"></p>
         </div>
       </section>
 
@@ -42,13 +46,16 @@
           <span class="badge" id="wp-name">Wegpunkt</span>
           <button id="btn-leave" class="ghost small">Verlassen</button>
         </div>
-        <div class="compass"><div class="needle" id="needle">🍾</div></div>
+        <div class="compass"><div class="needle" id="needle" aria-hidden="true">🍾</div></div>
+        <div class="center">
+          <button id="btn-compass" class="ghost small hidden">🧭 Kompass aktivieren</button>
+        </div>
         <div class="distance">
           <div><span class="big" id="dist-bottles">–</span> <span class="unit">Flaschenlängen</span></div>
           <div class="unit" id="dist-meters"></div>
         </div>
         <div class="statusbar" id="statusbar"></div>
-        <div class="hint hidden" id="hint"></div>
+        <div class="hint hidden" id="hint" role="status"></div>
         <div class="row">
           <button id="btn-found" class="accent block" disabled>Gefunden!</button>
           <button id="btn-skip" class="ghost block">Überspringen</button>
@@ -156,14 +163,17 @@
             hintEl.classList.add('hidden');
           }
           $('btn-found').disabled = !vm.hintRevealed;
+          $('btn-compass').classList.toggle('hidden', !vm.needsCompassPermission);
 
           const status = $('statusbar');
           if (vm.offline) {
             status.innerHTML = `<span class="dot off"></span> Offline${vm.queuedActions ? ` · ${vm.queuedActions} in Warteschlange` : ''}`;
+          } else if (vm.gpsProblem) {
+            status.innerHTML = `<span class="dot warn"></span> GPS-Signal gestört — freien Blick zum Himmel suchen`;
           } else if (vm.distanceMeters == null) {
             status.innerHTML = `<span class="dot warn"></span> Warte auf GPS …`;
           } else {
-            status.innerHTML = `<span class="dot"></span> Live`;
+            status.innerHTML = `<span class="dot"></span> Live${vm.hasCompass ? '' : ' · Kompass inaktiv'}`;
           }
         }
       }
@@ -223,7 +233,7 @@
       }
 
       // Buttons
-      $('btn-join').addEventListener('click', () => {
+      $('btn-join').addEventListener('click', async () => {
         // So früh wie möglich in der Klick-Geste anfragen: iOS verlangt, dass
         // DeviceOrientationEvent.requestPermission() direkt aus einer Nutzer-Geste kommt.
         // Nach einem await (z. B. dem Join-Request) zählt der Klick dafür ggf. nicht mehr,
@@ -235,8 +245,19 @@
           return;
         }
         $('join-error').textContent = '';
-        joinAndStart(code);
+        // Busy-Zustand: verhindert Doppel-Klicks und gibt bei zähem Netz sichtbares Feedback.
+        const btn = $('btn-join');
+        btn.disabled = true;
+        const label = btn.textContent;
+        btn.textContent = 'Trete bei …';
+        try {
+          await joinAndStart(code);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
       });
+      $('btn-compass').addEventListener('click', () => controller?.requestCompass());
       $('code').addEventListener('input', () => {
         const pos = $('code').selectionStart;
         $('code').value = $('code').value.toUpperCase();

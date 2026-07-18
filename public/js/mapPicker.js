@@ -8,6 +8,11 @@ let map = null;
 let marker = null;
 
 function ensureMap(containerId) {
+  if (typeof L === 'undefined') {
+    // Leaflet-Script nicht geladen (Datei fehlt/Netzwerkproblem) -> verständliche Meldung
+    // statt eines nackten "L is not defined" in der Fehleranzeige.
+    throw new Error('Karte konnte nicht geladen werden — bitte Seite neu laden.');
+  }
   if (map) return map;
   map = L.map(containerId).setView([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], DEFAULT_MAP_ZOOM);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

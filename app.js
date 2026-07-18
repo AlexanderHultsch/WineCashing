@@ -1,7 +1,7 @@
 // Express-App-Factory. Abhängigkeiten injizierbar -> gegen :memory:-SQLite testbar.
 import express from 'express';
 import session from 'express-session';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createAuth } from './middleware/auth.js';
@@ -65,7 +65,23 @@ export function createApp(deps) {
   // Unbekannte API-Pfade -> einheitlicher 404-Umschlag.
   app.use('/api', (_req, _res, next) => next(apiError('NOT_FOUND', 'Endpunkt nicht gefunden.')));
 
-  app.use(express.static(join(__dirname, 'public')));
+  // Explizite, STARKE Cache-Header statt Express' schwachem Default (max-age=0 ohne no-store):
+  // Die App läuft hinter Cloudflare, dessen Standard-Edge-Cache statische Endungen (.js/.css)
+  // oft unabhängig von schwachen Origin-Headern zwischenspeichert — ohne "no-store" sehen
+  // Nutzer nach einem Deploy sonst noch alten JS-/CSS-Code (genau die Art Bug, die schwer zu
+  // diagnostizieren ist, weil "einfach neu laden" nicht hilft). Die vendorten, versionierten
+  // Leaflet-Dateien ändern sich dagegen nie unangekündigt und dürfen lange/immutable cachen.
+  app.use(
+    express.static(join(__dirname, 'public'), {
+      setHeaders: (res, filePath) => {
+        if (filePath.includes(`${sep}vendor${sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.setHeader('Cache-Control', 'no-store');
+        }
+      },
+    }),
+  );
   app.use(errorHandler);
 
   return app;

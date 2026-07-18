@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Wine Caching — Geocaching mit Weinflaschen für den Freundeskreis." />
+    <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#17130f" media="(prefers-color-scheme: dark)" />
     <title>Wine Caching</title>
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
@@ -12,7 +15,9 @@
     <script src="vendor/leaflet/leaflet.js"></script>
   </head>
   <body>
-    <main class="app" id="app"></main>
+    <main class="app" id="app">
+      <noscript><p class="error">Diese Seite benötigt JavaScript — bitte im Browser aktivieren.</p></noscript>
+    </main>
 
     <!-- Karten-Auswahl-Overlay: bewusst AUSSERHALB von #app, damit es beim Neu-Rendern
          der App (innerHTML-Ersetzung) nicht mit-zerstört wird und die Leaflet-Karteninstanz
@@ -34,6 +39,7 @@
       import { formatDms } from './js/coordinates.js';
       import { openMapPicker, getMapPickerPosition } from './js/mapPicker.js';
       import { renderNavHtml, wireNavToggle } from './js/nav.js';
+      import { copyToClipboard } from './js/clipboard.js';
       import { SITE_NAME, SITE_TAGLINE, LOGO_EMOJI, DEFAULT_MAP_CENTER } from './js/config.js';
 
       const app = document.getElementById('app');
@@ -157,22 +163,24 @@
           ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
       }
 
+      // Echtes <form>: Enter-Taste sendet ab, Passwort-Manager erkennen die Felder zuverlässig.
+      // Mode-/Zurück-Buttons brauchen deshalb type="button", sonst würden sie das Formular absenden.
       function viewAuth() {
         const isLogin = S.authMode === 'login';
         return `
           <h1>${isLogin ? 'Login' : 'Registrieren'}</h1>
           <p class="muted">Melde dich an, um Routen anzulegen und Weinflaschen zu verstecken.</p>
-          <div class="card stack">
+          <form id="auth-form" class="card stack">
             <div class="row">
-              <button class="${isLogin ? 'primary' : 'ghost'} block" data-action="mode-login">Login</button>
-              <button class="${!isLogin ? 'primary' : 'ghost'} block" data-action="mode-register">Registrieren</button>
+              <button type="button" class="${isLogin ? 'primary' : 'ghost'} block" data-action="mode-login">Login</button>
+              <button type="button" class="${!isLogin ? 'primary' : 'ghost'} block" data-action="mode-register">Registrieren</button>
             </div>
-            <div class="field"><label>Benutzername</label><input id="username" autocomplete="username" /></div>
-            <div class="field"><label>Passwort</label><input id="password" type="password" autocomplete="current-password" /></div>
-            <button class="primary block" data-action="submit-auth">${isLogin ? 'Einloggen' : 'Konto erstellen'}</button>
-            <button class="ghost block" data-action="goto-landing">← Zurück</button>
-            ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}
-          </div>`;
+            <div class="field"><label for="username">Benutzername</label><input id="username" name="username" required minlength="3" maxlength="32" autocomplete="username" /></div>
+            <div class="field"><label for="password">Passwort${isLogin ? '' : ' (mind. 6 Zeichen)'}</label><input id="password" name="password" type="password" required ${isLogin ? '' : 'minlength="6"'} autocomplete="${isLogin ? 'current-password' : 'new-password'}" /></div>
+            <button type="submit" class="primary block" data-action="submit-auth">${isLogin ? 'Einloggen' : 'Konto erstellen'}</button>
+            <button type="button" class="ghost block" data-action="goto-landing">← Zurück</button>
+            ${S.error ? `<p class="error" role="alert">${esc(S.error)}</p>` : ''}
+          </form>`;
       }
 
       function viewRoutes() {
@@ -190,11 +198,11 @@
         return `
           <h1>Meine Routen</h1>
           <div class="card stack">${items}</div>
-          <div class="card stack">
-            <div class="field"><label>Neue Route</label><input id="new-route-name" placeholder="z. B. Sommerfest-Runde" /></div>
-            <button class="primary block" data-action="create-route">Route anlegen</button>
-          </div>
-          ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}`;
+          <form id="new-route-form" class="card stack">
+            <div class="field"><label for="new-route-name">Neue Route</label><input id="new-route-name" required maxlength="120" placeholder="z. B. Sommerfest-Runde" /></div>
+            <button type="submit" class="primary block" data-action="create-route">Route anlegen</button>
+          </form>
+          ${S.error ? `<p class="error" role="alert">${esc(S.error)}</p>` : ''}`;
       }
 
       function viewRoute() {
@@ -309,6 +317,12 @@
         wireNavToggle();
       }
 
+      // Echte <form>-Elemente (Login, neue Route) senden bei Enter ein natives 'submit'-Event,
+      // das sonst die Seite per GET neu lädt und den kompletten SPA-Zustand verwirft. Der Klick
+      // auf den type="submit"-Button feuert (auch bei Enter, per HTML-Spec) trotzdem ganz normal
+      // weiter und wird von der Click-Delegation unten wie gehabt verarbeitet.
+      app.addEventListener('submit', (e) => e.preventDefault());
+
       // --- Aktionen (Event-Delegation) ---
       app.addEventListener('click', (e) => {
         const navBtn = e.target.closest('[data-nav]');
@@ -403,7 +417,7 @@
           'wp-down': () => guard(() => moveWaypoint(id, +1)),
           'copy-code': () =>
             guard(async () => {
-              await navigator.clipboard.writeText(S.route.route_code);
+              await copyToClipboard(S.route.route_code);
               const copyBtn = document.querySelector('[data-action="copy-code"]');
               if (copyBtn) {
                 const original = copyBtn.textContent;

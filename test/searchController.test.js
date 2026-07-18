@@ -21,7 +21,7 @@ function makeRouteState(status) {
   };
 }
 
-function setup() {
+function setup(overrides = {}) {
   const status = { w1: 'offen', w2: 'offen' };
   const calls = { found: [], skip: [] };
   const api = {
@@ -35,15 +35,21 @@ function setup() {
       status[wid] = 'übersprungen';
     },
   };
+  let capturedGpsError = null;
   const geolocation = {
     requestLocationPermission: async () => ({ lat: 0, lng: 0, accuracy: 5, timestamp: 0 }),
-    watchPosition: () => () => {},
+    watchPosition: (_onSample, onError) => {
+      capturedGpsError = onError;
+      return () => {};
+    },
+    ...overrides.geolocation,
   };
   const sensors = {
     getScreenAngle: () => 0,
     requestOrientationPermission: async () => true,
     requestWakeLock: async () => ({ supported: false, release: () => {} }),
     watchOrientation: () => () => {},
+    ...overrides.sensors,
   };
   const controller = createSearchController({
     routeId: 'r1',
@@ -52,7 +58,7 @@ function setup() {
     sensors,
     pollIntervalMs: 1_000_000, // Intervall feuert im Test nicht; stop() räumt auf
   });
-  return { controller, api, status, calls };
+  return { controller, api, status, calls, triggerGpsError: (err) => capturedGpsError(err) };
 }
 
 test('start: Berechtigung -> Laden -> SEARCHING, aktiver Wegpunkt w1', async () => {
@@ -114,6 +120,61 @@ test('offline: Aktionen werden eingereiht und bei Wiederverbindung gesendet (Ver
   await controller.setOffline(false); // flush + poll
   assert.deepEqual(calls.found, ['w1']);
   assert.equal(controller.getViewModel().queuedActions, 0);
+  controller.stop();
+});
+
+test('GPS-Fehler (kein Fix/Timeout) markiert nur gpsProblem, NICHT offline', async () => {
+  const { controller, triggerGpsError } = setup();
+  await controller.start();
+
+  triggerGpsError({ code: 2 }); // POSITION_UNAVAILABLE
+  const vm = controller.getViewModel();
+  assert.equal(vm.gpsProblem, true, 'GPS-Störung markiert');
+  assert.equal(vm.offline, false, 'GPS-Fehler ist NICHT gleichbedeutend mit offline (Bug-Regression)');
+  assert.equal(controller.getState(), State.SEARCHING, 'bleibt in SEARCHING, kein Zustandswechsel');
+
+  // Ein gutes Sample danach löscht die Störung wieder.
+  controller.onGpsSample({ lat: 48.1371, lng: 11.5754, accuracy: 6, timestamp: 1000 });
+  assert.equal(controller.getViewModel().gpsProblem, false, 'gpsProblem wird von gutem Sample gelöscht');
+  controller.stop();
+});
+
+test('GPS-Fehler code 1 (PERMISSION_DENIED) -> zurück auf PERMISSION_REQUIRED', async () => {
+  const { controller, triggerGpsError } = setup();
+  await controller.start();
+  assert.equal(controller.getState(), State.SEARCHING);
+
+  triggerGpsError({ code: 1 });
+  assert.equal(controller.getState(), State.PERMISSION_REQUIRED, 'Standort-Widerruf mitten in der Suche -> Berechtigungs-Screen (nicht "Offline")');
+  assert.equal(controller.getViewModel().offline, false);
+  controller.stop();
+});
+
+test('requestCompass: setzt needsCompassPermission, wenn iOS die Anfrage ablehnt', async () => {
+  const { controller } = setup({ sensors: { requestOrientationPermission: async () => false } });
+  await controller.start();
+  assert.equal(controller.getViewModel().needsCompassPermission, true, 'start() ohne Geste -> iOS lehnt ab -> Button muss sichtbar sein');
+  controller.stop();
+});
+
+test('requestCompass: erfolgreiche Nachfrage blendet den Hinweis wieder aus', async () => {
+  let granted = false;
+  const { controller } = setup({ sensors: { requestOrientationPermission: async () => granted } });
+  await controller.start();
+  assert.equal(controller.getViewModel().needsCompassPermission, true);
+
+  granted = true; // Nutzer klickt "Kompass aktivieren" (echte Geste, diesmal erlaubt der Browser)
+  await controller.requestCompass();
+  assert.equal(controller.getViewModel().needsCompassPermission, false);
+  controller.stop();
+});
+
+test('hasCompass: wird erst nach dem ersten Orientation-Sample true', async () => {
+  const { controller } = setup();
+  await controller.start();
+  assert.equal(controller.getViewModel().hasCompass, false);
+  controller.onOrientationSample({ rawHeading: 10, absolute: true, source: 'absolute' });
+  assert.equal(controller.getViewModel().hasCompass, true);
   controller.stop();
 });
 

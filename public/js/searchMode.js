@@ -103,6 +103,9 @@ export function createSearchController(deps) {
 
   let state = State.PERMISSION_REQUIRED;
   let offline = false;
+  let gpsProblem = false; // GPS gestört (Timeout/kein Fix) — bewusst getrennt von "offline"
+  let orientationGranted = null; // null = unbekannt, false = verweigert (iOS braucht Geste)
+  let sawOrientation = false; // mind. ein echtes Kompass-Sample empfangen
   let routeState = null;
   let activeWaypoint = null;
 
@@ -134,6 +137,11 @@ export function createSearchController(deps) {
       hintRevealed: smoothedDistanceM != null && fusion.shouldRevealHint(smoothedDistanceM, config),
       rotation,
       queuedActions: actionQueue.length,
+      gpsProblem,
+      // iOS 13+: DeviceOrientation braucht eine explizite, gesten-gebundene Freigabe. Wurde sie
+      // (z. B. beim Auto-Resume ohne Klick) verweigert, zeigt die UI einen Aktivieren-Button.
+      needsCompassPermission: orientationGranted === false,
+      hasCompass: sawOrientation,
     };
   }
   const emit = () => render(viewModel());
@@ -205,7 +213,21 @@ export function createSearchController(deps) {
     rotation = fusion.smoothRotation(rotation, rawRotation, config.ROTATION_SMOOTHING);
   }
 
+  // GPS-Fehler sind NICHT gleichbedeutend mit "offline" (das Netz kann völlig intakt sein):
+  // - PERMISSION_DENIED (code 1): Nutzer hat die Standort-Freigabe entzogen -> zurück auf den
+  //   Berechtigungs-Screen (vorher zeigte die App hier irreführend dauerhaft "Offline").
+  // - Sonst (kein Fix/Timeout): nur als GPS-Störung markieren; das nächste gute Sample löscht sie.
+  function onGpsError(err) {
+    if (err && err.code === 1) {
+      apply(Event.PERMISSION_DENIED);
+      return;
+    }
+    gpsProblem = true;
+    emit();
+  }
+
   function onGpsSample(sample) {
+    gpsProblem = false;
     if (!activeWaypoint) return;
     const target = { lat: activeWaypoint.lat, lng: activeWaypoint.lng };
     const dt = lastGps ? (sample.timestamp - lastGps.timestamp) / 1000 : 0;
@@ -224,11 +246,22 @@ export function createSearchController(deps) {
   }
 
   function onOrientationSample(sample) {
+    const firstSample = !sawOrientation;
+    sawOrientation = true;
     lastHeading = fusion.normalizeHeading(sample, screenAngle);
     if (prevSmoothed && activeWaypoint) {
       updateRotation(prevSmoothed, { lat: activeWaypoint.lat, lng: activeWaypoint.lng });
       emit();
+    } else if (firstSample) {
+      emit(); // "Kompass inaktiv"-Hinweis in der UI sofort löschen
     }
+  }
+
+  // iOS: erneute Berechtigungsanfrage aus einer echten Nutzer-Geste (Button-Klick) heraus —
+  // der Auto-Resume-Pfad hat keine Geste, dort schlägt die Anfrage in start() zwingend fehl.
+  async function requestCompass() {
+    orientationGranted = (await sensors.requestOrientationPermission?.()) ?? true;
+    emit();
   }
 
   // --- Aktionen (found/skip), offline-fähig & idempotent (Vertrag A.5, 10) ---
@@ -294,11 +327,11 @@ export function createSearchController(deps) {
       apply(Event.PERMISSION_DENIED);
       return;
     }
-    await sensors.requestOrientationPermission?.();
+    orientationGranted = (await sensors.requestOrientationPermission?.()) ?? true;
     wakeLock = (await sensors.requestWakeLock?.()) ?? null;
     apply(Event.PERMISSION_GRANTED);
 
-    stopGps = geolocation.watchPosition(onGpsSample, () => setOffline(true));
+    stopGps = geolocation.watchPosition(onGpsSample, onGpsError);
     stopOrient = sensors.watchOrientation(onOrientationSample);
     await poll();
     startPolling();
@@ -322,6 +355,7 @@ export function createSearchController(deps) {
     stop,
     poll,
     reset,
+    requestCompass,
     reportFound: (id) => report('found', id),
     reportSkip: (id) => report('skip', id),
     onGpsSample,
