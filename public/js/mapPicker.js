@@ -8,10 +8,18 @@ import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from './config.js';
 // Position oder eigener Standort) — näher dran als der grobe Deutschland-Überblick.
 const LOCATED_MAP_ZOOM = 16;
 
-let map = null;
-let marker = null;
-let currentOnMove = null;
-let locateHandler = null; // vom Aufrufer gesetzt (index.html), kapselt die Geolocation-Anfrage
+// Gebündelter Modul-Zustand (Review-Fix: vorher vier lose globale Variablen) — macht die
+// gesamte veränderliche Oberfläche an einer Stelle sichtbar. `token` markiert eine
+// "Sitzung" (ein openMapPicker()-Aufruf); `userMoved` merkt sich, ob der Nutzer die
+// Position in DIESER Sitzung schon selbst gesetzt hat (Klick/Drag).
+const state = {
+  map: null,
+  marker: null,
+  currentOnMove: null,
+  locateHandler: null, // vom Aufrufer gesetzt (index.html), kapselt die Geolocation-Anfrage
+  token: 0,
+  userMoved: false,
+};
 
 function ensureMap(containerId) {
   if (typeof L === 'undefined') {
@@ -19,19 +27,19 @@ function ensureMap(containerId) {
     // statt eines nackten "L is not defined" in der Fehleranzeige.
     throw new Error('Karte konnte nicht geladen werden — bitte Seite neu laden.');
   }
-  if (map) return map;
-  map = L.map(containerId).setView([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], DEFAULT_MAP_ZOOM);
+  if (state.map) return state.map;
+  state.map = L.map(containerId).setView([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], DEFAULT_MAP_ZOOM);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
-  }).addTo(map);
-  marker = L.marker([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], { draggable: true }).addTo(map);
+  }).addTo(state.map);
+  state.marker = L.marker([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], { draggable: true }).addTo(state.map);
 
   // "Mich lokalisieren"-Steuerelement (Frage 2): ohne diesen Button landet man beim Öffnen
   // ohne vorherigen Standort-Klick "im Nirgendwo" (Deutschland-Mitte) und hatte bisher nur
   // einen Hinweistext als Ausweg. Nutzt Leaflets eigene .leaflet-bar-Optik, kein eigenes CSS
-  // nötig. Der eigentliche Geolocation-Aufruf bleibt beim Aufrufer (locateHandler) — dieses
-  // Modul kennt bewusst nur die Kartenbedienung, nicht die Sensor-Schicht.
+  // nötig. Der eigentliche Geolocation-Aufruf bleibt beim Aufrufer (state.locateHandler) —
+  // dieses Modul kennt bewusst nur die Kartenbedienung, nicht die Sensor-Schicht.
   const LocateControl = L.Control.extend({
     options: { position: 'topleft' },
     onAdd() {
@@ -46,14 +54,14 @@ function ensureMap(containerId) {
       L.DomEvent.disableClickPropagation(container);
       L.DomEvent.on(link, 'click', (e) => {
         L.DomEvent.preventDefault(e);
-        locateHandler?.();
+        state.locateHandler?.();
       });
       return container;
     },
   });
-  new LocateControl().addTo(map);
+  new LocateControl().addTo(state.map);
 
-  return map;
+  return state.map;
 }
 
 // Öffnet/zentriert die Karte im gegebenen Container auf startLat/startLng (z. B. aktueller
@@ -61,19 +69,28 @@ function ensureMap(containerId) {
 // (Klick auf die Karte, Marker-Drag oder Klick auf "Mich lokalisieren").
 // onLocateRequest (optional): wird beim Klick auf den Locate-Button aufgerufen — der
 // Aufrufer fragt darin selbst die Geolocation an und ruft anschließend moveMapPickerTo(...).
+//
+// Rückgabewert: ein Sitzungs-Token. Der Aufrufer muss es an moveMapPickerTo(...) durchreichen,
+// wenn eine asynchrone Geolocation-Anfrage (Review-Fix) erst NACH einem erneuten Öffnen
+// (ggf. für einen anderen Wegpunkt) auflöst — moveMapPickerTo verwirft dann still den
+// veralteten Aufruf, statt die Position eines längst anderen Kontexts zu überschreiben.
 export function openMapPicker(containerId, { startLat, startLng, onMove, onLocateRequest } = {}) {
   const m = ensureMap(containerId);
-  currentOnMove = onMove;
-  locateHandler = onLocateRequest ?? null;
-  marker.setLatLng([startLat, startLng]);
+  state.token += 1;
+  state.userMoved = false;
+  state.currentOnMove = onMove;
+  state.locateHandler = onLocateRequest ?? null;
+  state.marker.setLatLng([startLat, startLng]);
   onMove(startLat, startLng);
 
-  marker.off('dragend').on('dragend', () => {
-    const { lat, lng } = marker.getLatLng();
+  state.marker.off('dragend').on('dragend', () => {
+    state.userMoved = true;
+    const { lat, lng } = state.marker.getLatLng();
     onMove(lat, lng);
   });
   m.off('click').on('click', (e) => {
-    marker.setLatLng(e.latlng);
+    state.userMoved = true;
+    state.marker.setLatLng(e.latlng);
     onMove(e.latlng.lat, e.latlng.lng);
   });
 
@@ -88,18 +105,29 @@ export function openMapPicker(containerId, { startLat, startLng, onMove, onLocat
     m.invalidateSize();
     m.setView([startLat, startLng], LOCATED_MAP_ZOOM);
   }, 0);
+
+  return state.token;
 }
 
 // Zentriert die bereits offene Karte nachträglich neu (z. B. wenn eine asynchron
 // angefragte Geolocation-Position eintrifft, oder nach Klick auf "Mich lokalisieren").
-export function moveMapPickerTo(lat, lng, zoom = LOCATED_MAP_ZOOM) {
-  if (!map || !marker) return;
-  marker.setLatLng([lat, lng]);
-  map.setView([lat, lng], zoom);
-  currentOnMove?.(lat, lng);
+//
+// token: vom aufrufenden openMapPicker()-Aufruf — wurde die Karte seither erneut geöffnet
+// (anderer Token), ist dieser Aufruf veraltet und wird verworfen.
+// silent: true für automatische Hintergrund-Anfragen (Review-Fix) — die werden zusätzlich
+// verworfen, wenn der Nutzer die Position in dieser Sitzung schon manuell gesetzt hat
+// (Klick/Drag). Ein expliziter Klick auf "Mich lokalisieren" (silent bleibt false) hat
+// dagegen immer Vorrang, auch über eine vorherige manuelle Auswahl hinweg.
+export function moveMapPickerTo(lat, lng, token, { zoom = LOCATED_MAP_ZOOM, silent = false } = {}) {
+  if (!state.map || !state.marker) return;
+  if (token !== state.token) return; // veraltete Sitzung (Karte wurde zwischenzeitlich neu geöffnet)
+  if (silent && state.userMoved) return; // Nutzer hat in dieser Sitzung schon selbst gewählt
+  state.marker.setLatLng([lat, lng]);
+  state.map.setView([lat, lng], zoom);
+  state.currentOnMove?.(lat, lng);
 }
 
 export function getMapPickerPosition() {
-  const { lat, lng } = marker.getLatLng();
+  const { lat, lng } = state.marker.getLatLng();
   return { lat, lng };
 }

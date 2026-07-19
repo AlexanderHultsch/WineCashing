@@ -10,15 +10,13 @@ export function deriveRouteDisplayStatus(route) {
   return route.route_code_active ? 'aktiv' : 'deaktiviert';
 }
 
-export const ROUTE_DISPLAY_STATUS_LABEL = {
-  erstellung: 'Erstellung',
-  aktiv: 'Aktiv',
-  deaktiviert: 'Deaktiviert',
-};
-
-// CSS-Modifikator für die bestehenden .badge.on/.badge.off-Klassen (styles.css).
-export const ROUTE_DISPLAY_STATUS_BADGE_CLASS = {
-  erstellung: '',
-  aktiv: 'on',
-  deaktiviert: 'off',
+// Ein Eintrag pro Status statt zweier paralleler Lookup-Objekte (Review-Fix): sonst
+// könnte ein künftiger vierter Status in einem der beiden Objekte ergänzt werden, aber
+// im anderen vergessen werden — das fiele erst zur Laufzeit als "undefined" im Badge auf.
+// badgeClass ist der CSS-Modifikator für die bestehenden .badge.on/.badge.off-Klassen
+// (styles.css); '' bleibt beim neutralen Grau-Ton der Basis-.badge-Klasse.
+export const ROUTE_DISPLAY_STATUS_META = {
+  erstellung: { label: 'Erstellung', badgeClass: '' },
+  aktiv: { label: 'Aktiv', badgeClass: 'on' },
+  deaktiviert: { label: 'Deaktiviert', badgeClass: 'off' },
 };

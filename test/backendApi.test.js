@@ -72,11 +72,17 @@ test('Route: anlegen (erstellung), Start-Guard ohne Wegpunkte -> 409, dann such_
 
     r = await c.get(`/api/routes/${routeId}`);
     assert.equal(r.body.waypoints.length, 1);
+    // GET /:routeId liefert progress direkt mit (Review-Fix: vorher zweiter Request nötig).
+    assert.equal(r.body.progress.started_at, null);
+    assert.equal(r.body.progress.completed_at, null);
 
     r = await c.post(`/api/routes/${routeId}/start`);
     assert.equal(r.status, 200);
     assert.equal(r.body.route.status, 'such_modus');
     assert.ok(r.body.progress.started_at);
+
+    r = await c.get(`/api/routes/${routeId}`);
+    assert.ok(r.body.progress.started_at, 'GET /:routeId spiegelt den Fortschritt nach dem Start wider');
   } finally {
     await be.close();
   }

@@ -107,6 +107,17 @@ try {
   await p.waitForSelector('[data-action="wp-del"]');
   assert(true, 'Wegpunkt nach Korrektur erfolgreich hinzugefügt');
 
+  // Review-Fix: Auch VOR dem Start (noch "Erstellung") muss sich der Code sperren lassen —
+  // der Tri-State-Umschalter allein bot das früher nur noch für gestartete Routen.
+  assert((await p.textContent('.badge')).includes('Erstellung'), 'Route ist noch in Erstellung');
+  await p.waitForSelector('[data-action="code-deactivate"]');
+  await p.click('[data-action="code-deactivate"]');
+  await p.waitForSelector('[data-action="code-activate"]');
+  assert(true, 'Code lässt sich schon während der Erstellung sperren (Review-Fix)');
+  await p.click('[data-action="code-activate"]');
+  await p.waitForSelector('[data-action="code-deactivate"]');
+  assert(true, 'Code lässt sich während der Erstellung wieder entsperren');
+
   await p.click('[data-action="start"]');
   await p.waitForFunction(() => document.querySelector('.badge')?.textContent?.includes('Aktiv'));
   assert(true, 'Route gestartet -> Status-Badge "Aktiv" in der Routen-Steuerung (Bug 3)');

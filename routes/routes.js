@@ -1,7 +1,8 @@
 // Routen-, Wegpunkt- & Code-Verwaltung (Vertrag A.4). Nur Owner der eigenen Route.
 import { Router } from 'express';
 import { apiError } from '../middleware/errorEnvelope.js';
-import { ROUTE_STATUS, WAYPOINT_STATUS, toRouteSummary, toRoute, toWaypoint, toProgress } from '../lib/domain.js';
+import { ROUTE_STATUS, WAYPOINT_STATUS, toRouteSummary, toRoute, toRouteWithProgress, toWaypoint, toProgress } from '../lib/domain.js';
+import { generateUniqueRouteCode, renewRouteCode, activateRouteCode } from '../lib/routeCode.js';
 
 function asNumber(value, field, min, max) {
   if (typeof value !== 'number' || Number.isNaN(value) || value < min || value > max) {
@@ -26,14 +27,6 @@ function asOptionalString(value, field, max = 120) {
   return value;
 }
 
-function generateUniqueCode(repo, generateCode) {
-  for (let i = 0; i < 10; i++) {
-    const code = generateCode();
-    if (!repo.getRouteByCode(code)) return code;
-  }
-  throw new Error('Konnte keinen eindeutigen Routen-Code erzeugen.');
-}
-
 // Wegpunkt laden und Zugehörigkeit zur Route prüfen.
 function loadWaypoint(repo, route, wpId) {
   const wp = repo.getWaypoint(wpId);
@@ -55,7 +48,7 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
     // Code direkt bei Anlage erzeugen (aktiv): Teilen ist ohnehin ein manueller Schritt
     // des Owners, und "Code erzeugen" als Extra-Klick bringt keinen Sicherheitsgewinn —
     // wer noch nicht teilen will, nutzt einfach "Deaktivieren".
-    const code = generateUniqueCode(repo, generateCode);
+    const code = generateUniqueRouteCode(repo, generateCode);
     const route = repo.createRoute({
       id: newId(),
       owner_user_id: req.user.id,
@@ -69,7 +62,8 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
   });
 
   router.get('/:routeId', owner, (req, res) => {
-    res.json(toRoute(req.route, repo.listWaypoints(req.route.id)));
+    const progress = repo.getProgress(req.route.id);
+    res.json(toRouteWithProgress(req.route, repo.listWaypoints(req.route.id), progress));
   });
 
   router.patch('/:routeId', owner, (req, res) => {
@@ -156,14 +150,13 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
       res.json({ route_code: req.route.route_code, active: !!req.route.route_code_active });
       return;
     }
-    const code = generateUniqueCode(repo, generateCode);
+    const code = generateUniqueRouteCode(repo, generateCode);
     const route = repo.setRouteCode(req.route.id, code, true);
     res.json({ route_code: route.route_code, active: true });
   });
 
   router.post('/:routeId/code/renew', owner, (req, res) => {
-    const code = generateUniqueCode(repo, generateCode);
-    const route = repo.setRouteCode(req.route.id, code, true);
+    const route = renewRouteCode(repo, req.route.id, generateCode);
     res.json({ route_code: route.route_code, active: true });
   });
 
@@ -176,14 +169,8 @@ export function createRoutesRouter({ repo, auth, newId, now, generateCode }) {
   // er gab bei existierendem Code nur den aktuellen Zustand zurück). Erzeugt einen Code,
   // falls die Route (Alt-Route) noch keinen hat.
   router.post('/:routeId/code/activate', owner, (req, res) => {
-    if (!req.route.route_code) {
-      const code = generateUniqueCode(repo, generateCode);
-      const route = repo.setRouteCode(req.route.id, code, true);
-      res.json({ route_code: route.route_code, active: true });
-      return;
-    }
-    repo.setRouteCodeActive(req.route.id, true);
-    res.json({ route_code: req.route.route_code, active: true });
+    const route = activateRouteCode(repo, req.route, generateCode);
+    res.json({ route_code: route.route_code, active: true });
   });
 
   return router;

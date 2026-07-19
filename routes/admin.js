@@ -4,14 +4,7 @@
 import { Router } from 'express';
 import { apiError } from '../middleware/errorEnvelope.js';
 import { toAdminRouteSummary, toAdminUserSummary } from '../lib/domain.js';
-
-function generateUniqueCode(repo, generateCode) {
-  for (let i = 0; i < 10; i++) {
-    const code = generateCode();
-    if (!repo.getRouteByCode(code)) return code;
-  }
-  throw new Error('Konnte keinen eindeutigen Routen-Code erzeugen.');
-}
+import { renewRouteCode, activateRouteCode } from '../lib/routeCode.js';
 
 function loadAnyRoute(repo, routeId) {
   const route = repo.getRoute(routeId);
@@ -49,21 +42,14 @@ export function createAdminRouter({ repo, auth, generateCode }) {
 
   router.post('/routes/:routeId/code/renew', admin, (req, res) => {
     loadAnyRoute(repo, req.params.routeId);
-    const code = generateUniqueCode(repo, generateCode);
-    const route = repo.setRouteCode(req.params.routeId, code, true);
+    const route = renewRouteCode(repo, req.params.routeId, generateCode);
     res.json({ route_code: route.route_code, active: true });
   });
 
   router.post('/routes/:routeId/code/activate', admin, (req, res) => {
     const route = loadAnyRoute(repo, req.params.routeId);
-    if (!route.route_code) {
-      const code = generateUniqueCode(repo, generateCode);
-      const updated = repo.setRouteCode(route.id, code, true);
-      res.json({ route_code: updated.route_code, active: true });
-      return;
-    }
-    repo.setRouteCodeActive(route.id, true);
-    res.json({ route_code: route.route_code, active: true });
+    const updated = activateRouteCode(repo, route, generateCode);
+    res.json({ route_code: updated.route_code, active: true });
   });
 
   router.post('/routes/:routeId/code/deactivate', admin, (req, res) => {

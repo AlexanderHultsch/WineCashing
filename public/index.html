@@ -41,7 +41,7 @@
       import { renderNavHtml, wireNavToggle } from './js/nav.js';
       import { copyToClipboard } from './js/clipboard.js';
       import { SITE_NAME, SITE_TAGLINE, LOGO_EMOJI, DEFAULT_MAP_CENTER } from './js/config.js';
-      import { deriveRouteDisplayStatus, ROUTE_DISPLAY_STATUS_LABEL, ROUTE_DISPLAY_STATUS_BADGE_CLASS } from './js/routeStatus.js';
+      import { deriveRouteDisplayStatus, ROUTE_DISPLAY_STATUS_META } from './js/routeStatus.js';
 
       const app = document.getElementById('app');
       const S = {
@@ -64,7 +64,8 @@
       // "Route aktiv", obwohl der Code deaktiviert war).
       const displayStatusBadge = (route) => {
         const s = deriveRouteDisplayStatus(route);
-        return `<span class="badge ${ROUTE_DISPLAY_STATUS_BADGE_CLASS[s]}">${ROUTE_DISPLAY_STATUS_LABEL[s]}</span>`;
+        const meta = ROUTE_DISPLAY_STATUS_META[s];
+        return `<span class="badge ${meta.badgeClass}">${meta.label}</span>`;
       };
 
       async function guard(fn) {
@@ -73,6 +74,15 @@
           S.info = '';
           await fn();
         } catch (e) {
+          // Review-Fix: Wurde die gerade geöffnete Route zwischenzeitlich fremd gelöscht
+          // (z. B. von einem Admin), würde jede weitere Aktion in derselben Ansicht wieder
+          // an genau demselben 404/401 scheitern — automatisch zur Routenliste zurück,
+          // statt den Nutzer in einer Fehlerschleife auf einer toten Route festzuhalten.
+          if (S.screen === 'route' && (e.code === 'NOT_FOUND' || e.code === 'UNAUTHENTICATED')) {
+            S.error = 'Diese Route ist nicht mehr verfügbar.';
+            await loadRoutes();
+            return;
+          }
           S.error = e.message || 'Fehler';
           render();
         }
@@ -106,16 +116,22 @@
         S.screen = 'routes';
         render();
       }
+      // EIN Fetch liefert Route + Progress zusammen (GET /:routeId, Review-Fix): zwei
+      // getrennte awaits hätten sich bei überlappenden Aufrufen (schnelles Doppel-Öffnen)
+      // zeitlich verschränken und Route/Progress aus zwei unterschiedlichen Antworten
+      // mischen können.
       async function openRoute(id) {
-        S.route = await api.getRoute(id);
-        S.progress = (await api.state(id)).progress;
+        const route = await api.getRoute(id);
+        S.route = route;
+        S.progress = route.progress;
         S.wpDraft = null;
         S.screen = 'route';
         render();
       }
       async function refreshRoute() {
-        S.route = await api.getRoute(S.route.id);
-        S.progress = (await api.state(S.route.id)).progress;
+        const route = await api.getRoute(S.route.id);
+        S.route = route;
+        S.progress = route.progress;
         render();
       }
       async function loadAdmin() {
@@ -152,7 +168,11 @@
         const start = S.wpDraft?.lat != null ? { lat: S.wpDraft.lat, lng: S.wpDraft.lng } : lastWp ? { lat: lastWp.lat, lng: lastWp.lng } : DEFAULT_MAP_CENTER;
 
         const coordsEl = () => document.getElementById('map-picker-coords');
-        openMapPicker('map-picker', {
+        // Token identifiziert diese Öffnungs-Sitzung (Review-Fix): wird die Karte erneut
+        // geöffnet (z. B. für einen anderen Wegpunkt), bevor eine der beiden Geolocation-
+        // Anfragen unten aufgelöst hat, verwirft moveMapPickerTo() den veralteten Aufruf
+        // anhand dieses Tokens, statt den Marker eines längst anderen Kontexts zu verschieben.
+        const token = openMapPicker('map-picker', {
           startLat: start.lat,
           startLng: start.lng,
           onMove: (lat, lng) => {
@@ -161,7 +181,7 @@
           onLocateRequest: async () => {
             try {
               const s = await geolocation.requestLocationPermission();
-              moveMapPickerTo(s.lat, s.lng);
+              moveMapPickerTo(s.lat, s.lng, token);
             } catch {
               coordsEl().textContent = 'Standort nicht verfügbar — bitte Karte manuell verschieben.';
             }
@@ -170,11 +190,13 @@
 
         // Kein bekannter Startpunkt -> automatisch den eigenen Standort versuchen (still,
         // ohne die Karte zu blockieren). Schlägt das fehl (verweigert/Timeout), bleibt der
-        // synchrone Default (letzter Wegpunkt oder Deutschland) bestehen.
+        // synchrone Default (letzter Wegpunkt oder Deutschland) bestehen. `silent: true`
+        // sorgt zusätzlich dafür, dass eine spät auflösende Anfrage eine zwischenzeitliche
+        // manuelle Positionswahl des Nutzers nicht mehr überschreibt (Review-Fix).
         if (!hasKnownStart) {
           geolocation
             .requestLocationPermission()
-            .then((s) => moveMapPickerTo(s.lat, s.lng))
+            .then((s) => moveMapPickerTo(s.lat, s.lng, token, { silent: true }))
             .catch(() => {
               /* Standort nicht verfügbar: Default-Zentrum bleibt, Locate-Button bleibt nutzbar */
             });
@@ -317,6 +339,22 @@
           aktiv: `<button class="danger block" data-action="code-deactivate">Route deaktivieren</button>`,
           deaktiviert: `<button class="accent block" data-action="code-activate">Route wieder aktivieren</button>`,
         }[displayStatus];
+        // Review-Fix: solange die Route noch in Erstellung ist, zeigt der Tri-State immer
+        // "Erstellung" (unabhängig von route_code_active) — ohne diesen Zusatz-Umschalter
+        // hätte der Owner keine Möglichkeit mehr, den ab Anlage automatisch aktiven Code
+        // schon VOR dem Start zu sperren (frühere codeSection konnte das unabhängig vom
+        // Routenstatus).
+        const codeLockToggle =
+          displayStatus === 'erstellung'
+            ? `<div class="row wrap">
+                 <span class="badge ${r.route_code_active ? 'on' : 'off'}">Code ${r.route_code_active ? 'aktiv' : 'gesperrt'}</span>
+                 ${
+                   r.route_code_active
+                     ? '<button class="ghost small" data-action="code-deactivate">Code sperren</button>'
+                     : '<button class="ghost small" data-action="code-activate">Code entsperren</button>'
+                 }
+               </div>`
+            : '';
 
         return `
           <div class="row">
@@ -357,6 +395,7 @@
               ${displayStatusBadge(r)}
               ${completed ? '<span class="badge on">✅ Abgeschlossen</span>' : ''}
             </div>
+            ${codeLockToggle}
             <div class="row wrap">
               ${controlButton}
               <button class="ghost block" data-action="reset">Zurücksetzen</button>

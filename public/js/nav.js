@@ -4,6 +4,10 @@
 // die konkreten Aktionen absichtlich nicht, damit beide Seiten unabhängig bleiben.
 import { LOGO_EMOJI, SITE_NAME } from './config.js';
 
+// Usernamen sind nur auf Länge geprüft (routes/auth.js), nicht auf Zeichen — ungeschützt
+// in innerHTML eingesetzt wäre das Stored-Self-XSS (Review-Fix).
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
 // active: 'search' | 'create' | 'admin' | 'info' — welcher Menüpunkt als "aktuelle Seite"
 // markiert wird (kein Router: die Seiten sind getrennte HTML-Dateien).
 // user: eingeloggter Benutzername oder null. isAdmin: nur dann erscheint der Admin-Menüpunkt.
@@ -14,7 +18,7 @@ export function renderNavHtml({ active, user, isAdmin = false }) {
       <span class="brand">${LOGO_EMOJI} ${SITE_NAME}</span>
       <button type="button" class="hamburger" id="nav-toggle" aria-label="Menü" aria-expanded="false">☰</button>
       <div class="nav-menu hidden" id="nav-menu">
-        ${user ? `<span class="nav-user">👤 ${user}</span>` : ''}
+        ${user ? `<span class="nav-user">👤 ${esc(user)}</span>` : ''}
         ${
           user
             ? `<button type="button" class="nav-item" data-nav="logout">Logout</button>`

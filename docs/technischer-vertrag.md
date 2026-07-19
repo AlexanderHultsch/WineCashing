@@ -62,7 +62,7 @@ Passwörter serverseitig mit bcrypt/argon2 hashen. Login/Register rate-limitiert
 |---|---|---|---|---|
 | GET | `/api/routes` | — | `200 [RouteSummary]` | nur eigene |
 | POST | `/api/routes` | `{name}` | `201 {Route}` | `status = "erstellung"` |
-| GET | `/api/routes/:routeId` | — | `200 {Route + waypoints}` | Owner-Vollansicht |
+| GET | `/api/routes/:routeId` | — | `200 {Route + waypoints + progress}` | Owner-Vollansicht |
 | PATCH | `/api/routes/:routeId` | `{name?}` | `200 {Route}` | |
 | DELETE | `/api/routes/:routeId` | — | `204` | |
 | POST | `/api/routes/:routeId/start` | — | `200 {Route, RouteProgress}` | Guard: ≥ 1 Wegpunkt, sonst `409 NO_WAYPOINTS`. Setzt `status="such_modus"`, `started_at` (Spec 4.3) |
@@ -77,6 +77,8 @@ Passwörter serverseitig mit bcrypt/argon2 hashen. Login/Register rate-limitiert
 | PUT | `/api/routes/:routeId/waypoints/order` | `{ordered_ids:[...]}` | `200 [Waypoint]` |
 
 `PUT .../order` setzt die Reihenfolge in einem Rutsch neu (robuster als einzelne `order_index`, deckt Spec 4.4 „Neu-Sortieren" sauber ab). Alle Wegpunkt-Änderungen sind auch **während laufender Suche** erlaubt (Spec 4.4); der aktive Wegpunkt ergibt sich danach automatisch neu (Ableitung, B.4).
+
+**Amendment (Review-Fix):** `GET /:routeId` liefert `progress` jetzt direkt mit (statt dass die Owner-UI dafür zusätzlich `GET .../state` aufrufen musste). Zwei getrennte, unsynchronisierte Requests für dieselbe Ansicht konnten sich bei überlappenden Aufrufen (schnelles Doppel-Öffnen zweier Routen) zeitlich verschränken und Route-Daten der einen mit Progress-Daten der anderen Route mischen.
 
 ### Routen-Code (Spec 5)
 | Methode | Pfad | Erfolg | Wirkung |
@@ -154,7 +156,7 @@ Optionaler Body `{client_ts}` nur fürs Logging; der Server verlässt sich nie a
 
 ```
 RouteSummary  = { id, name, status, route_code?, route_code_active, created_at }
-Route         = RouteSummary & { owner_user_id, waypoints: Waypoint[] }
+Route         = RouteSummary & { owner_user_id, waypoints: Waypoint[], progress: RouteProgress }
 Waypoint      = { id, route_id, order_index, lat, lng, hint_text, name? }
 RouteProgress = { route_id, started_at, completed_at|null }
 WaypointStatus= { waypoint_id, status: "offen"|"gefunden"|"übersprungen", updated_at }
