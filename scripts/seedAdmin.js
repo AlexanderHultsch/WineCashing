@@ -1,5 +1,5 @@
 // Admin-Bootstrap (Vertrag A.3): legt den ersten is_admin-Nutzer an.
-// Liest ADMIN_USERNAME / ADMIN_PASSWORD aus der Umgebung (siehe .env.example).
+// Liest ADMIN_USER / ADMIN_PASSWORD aus der Umgebung (siehe .env.example).
 // Idempotent: existiert der Nutzer, wird sein Passwort aktualisiert und is_admin gesetzt.
 // Aufruf:  npm run seed:admin
 import { openDatabase } from '../db/index.js';
@@ -8,11 +8,11 @@ import { hashPassword } from '../lib/password.js';
 import { newId } from '../lib/ids.js';
 import { nowIso } from '../lib/time.js';
 
-const username = process.env.ADMIN_USERNAME;
+const username = process.env.ADMIN_USER;
 const password = process.env.ADMIN_PASSWORD;
 
 if (!username || !password) {
-  console.error('Fehlt: ADMIN_USERNAME und ADMIN_PASSWORD müssen gesetzt sein (siehe .env.example).');
+  console.error('Fehlt: ADMIN_USER und ADMIN_PASSWORD müssen gesetzt sein (siehe .env.example).');
   process.exit(1);
 }
 

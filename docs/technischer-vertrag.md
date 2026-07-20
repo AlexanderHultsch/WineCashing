@@ -357,3 +357,26 @@ Das schließt den Kreislauf Feld → Log kopieren (6.11.1) → als Testfall able
 ## C.6 Offene Feinjustierung (bewusst iterativ, Spec 13)
 
 Filtergewichte, Deklinations-Näherung, exakte Schwellen der Plausibilitäts-Faktoren und die Nahbereich-Umschaltung werden im Feldtest kalibriert — ohne die hier festgelegten Signaturen und Verträge zu ändern.
+
+---
+
+# Teil D — Deployment-Vertrag (Pi-Konstrukt)
+
+Verbindlicher Standard der zentralen Installations-Automatisierung des
+PiMultiServiceServer-Konstrukts, damit sie alle darin laufenden Seiten einheitlich
+behandeln kann. Gilt zusätzlich zu, nicht anstelle von, Teil A–C. Bei Abweichung: dieses
+Repo anpassen, nicht den Vertrag.
+
+| # | Anforderung | Umsetzung in diesem Repo |
+|---|---|---|
+| D.1 | `Dockerfile` im Repo-Root, App läuft als Container | `Dockerfile` |
+| D.2 | Lauscht auf `process.env.PORT` (Default `3000`) | `server.js` |
+| D.3 | Start ohne Argumente: `node server.js` | `package.json#scripts.start`, Dockerfile `CMD` |
+| D.4 | SQLite-Datei unter `process.env.DB_PATH` (Default `./data/winecashing.db`); Host mountet `/data` als Volume | `db/index.js` |
+| D.5 | Secrets nur aus Env-Variablen, nie committen: `SESSION_SECRET`; bei Admin-Funktion zusätzlich `ADMIN_USER` + `ADMIN_PASSWORD` | `.env.example`, `app.js`, `scripts/seedAdmin.js` |
+| D.6 | Admin-Seed `npm run seed:admin` liest `ADMIN_USER`/`ADMIN_PASSWORD`; Admin-Account ist zentral einmal gesetzt und über alle Seiten identisch | `scripts/seedAdmin.js` |
+| D.7 | `.env.example` mit allen Variablen als Platzhalter; echte `.env` in `.gitignore` | `.env.example`, `.gitignore` |
+
+**Wichtig:** Die Variable heißt exakt `ADMIN_USER` (nicht `ADMIN_USERNAME`) — das ist der
+zentrale Vertrag über alle Seiten des Konstrukts hinweg, unabhängig vom internen
+Domänen-Feldnamen `username` in diesem Repo (`users.username` in `db/schema.sql`).

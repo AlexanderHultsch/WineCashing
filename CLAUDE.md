@@ -8,6 +8,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Die verbindliche Schnittstellen-Definition steht in **`docs/technischer-vertrag.md`** — API-Vertrag (Teil A), Client-State-Machine (Teil B), Sensor-Fusion-Algorithmen (Teil C). Dieses Dokument friert die Schnittstellen **vor** dem Feature-Code ein; die dort festgelegten Signaturen, Endpunkte und Verträge sind maßgeblich. Alle drei Schichten (Backend-API, Client-Such-Modus, Sensor-Fusion) **und** die Web-UI (`public/index.html` Owner + Admin-Panel, `public/search.html` Mitsucher, `public/datenschutz.html` Info/Datenschutz) sind implementiert und getestet; ein End-to-End-Browsertest (`e2e/browser.mjs`, benötigt separat installiertes Playwright) fährt den kompletten Flow durch (Owner + Mitsucher + Admin).
 
+## Deployment-Standard (Pi-Konstrukt — verbindlich, nicht abweichen)
+
+Diese Website läuft als eigener Docker-Container auf einem Raspberry Pi hinter einem
+Caddy-Reverse-Proxy (siehe „Deployment als Container" unten). Damit die zentrale
+Installations-Automatisierung des Pi-Server-Konstrukts alle Seiten einheitlich behandeln
+kann, MUSS dieses Repo folgendem Vertrag entsprechen — bei **jeder** künftigen Änderung
+einhalten, nicht wieder abweichen:
+
+1. **`Dockerfile` im Repo-Root** — die App läuft als Container (auch reine Frontends).
+2. **Lauscht auf `process.env.PORT`** (Default `3000`) — `server.js`.
+3. **Start ohne Argumente:** `node server.js` — `package.json#scripts.start`, Dockerfile-`CMD`.
+4. **Datenbank:** SQLite-Datei unter `process.env.DB_PATH` (Default `./data/winecashing.db`,
+   im Container `/data/winecashing.db`) — `db/index.js`. Der Host mountet `/data` als Volume.
+5. **Secrets NUR aus Env-Variablen**, nie hartkodiert, nie committen: `SESSION_SECRET`;
+   bei Admin-Funktion zusätzlich `ADMIN_USER` + `ADMIN_PASSWORD` (**nicht** `ADMIN_USERNAME`
+   — exakt dieser Name ist der zentrale Vertrag).
+6. **Admin-Seed:** `npm run seed:admin` (`scripts/seedAdmin.js`) liest `ADMIN_USER`/
+   `ADMIN_PASSWORD` aus der Env. Der Admin-Account wird zentral einmal gesetzt und ist über
+   alle Seiten des Pi-Konstrukts identisch — hier keine eigene Nutzerverwaltung für den
+   ersten Admin erfinden.
+7. **`.env.example`** mit allen Variablen als Platzhalter; echte `.env` in `.gitignore`
+   (das Repo ist öffentlich!).
+
+Aktueller Stand: alle 7 Punkte erfüllt (Review-Fix: `ADMIN_USERNAME` → `ADMIN_USER` in
+`scripts/seedAdmin.js`, `.env.example`, `README.md` korrigiert, damit Punkt 5/6 exakt
+passen).
+
 ## Befehle
 
 - `npm install` — Abhängigkeiten installieren
@@ -16,7 +43,7 @@ Die verbindliche Schnittstellen-Definition steht in **`docs/technischer-vertrag.
 - `npm test` — alle Tests (`node --test`, Node-eingebaut)
 - Einzelner Test: `node --test test/sensorFusion.test.js`
 - `npm run lint` / `npm run format` — ESLint (flat config) / Prettier
-- `npm run seed:admin` — ersten `is_admin`-Nutzer aus `ADMIN_USERNAME`/`ADMIN_PASSWORD` anlegen (`.env`)
+- `npm run seed:admin` — ersten `is_admin`-Nutzer aus `ADMIN_USER`/`ADMIN_PASSWORD` anlegen (`.env`)
 
 Konfiguration über `.env` (Vorlage: `.env.example`). IDs im Datenmodell sind UUIDs (`TEXT`).
 
@@ -67,7 +94,7 @@ Lese-Zustand (`/state`) und Fund/Skip akzeptieren **beide** Mechanismen; alle Ve
 
 ```
 RouteSummary  = { id, name, status, route_code?, route_code_active, created_at }
-Route         = RouteSummary & { owner_user_id, waypoints: Waypoint[] }
+Route         = RouteSummary & { owner_user_id, waypoints: Waypoint[], progress: RouteProgress }
 Waypoint      = { id, route_id, order_index, lat, lng, hint_text, name? }
 RouteProgress = { route_id, started_at, completed_at|null }
 WaypointStatus= { waypoint_id, status, updated_at }

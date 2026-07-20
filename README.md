@@ -22,7 +22,7 @@ npm install
 npm run dev            # Server mit Auto-Reload
 npm test               # node --test (Unit + HTTP-Integration)
 npm run lint           # ESLint
-npm run seed:admin     # ersten Admin anlegen (ADMIN_USERNAME/ADMIN_PASSWORD aus .env)
+npm run seed:admin     # ersten Admin anlegen (ADMIN_USER/ADMIN_PASSWORD aus .env)
 ```
 
 Owner-Oberfläche unter `/` (`index.html`, inkl. Admin-Panel für `is_admin`-Nutzer),
@@ -52,7 +52,7 @@ paketiert: eigener Container hinter Caddy, erreichbar als `winecashing.<DOMAIN>`
 
 **Umgebungsvariablen (Vertrag):** `PORT` (Default 3000), `DB_PATH` (SQLite-Datei,
 Default `./data/winecashing.db`, im Container `/data/winecashing.db`),
-`SESSION_SECRET` (Pflicht in Produktion), `ADMIN_USERNAME`/`ADMIN_PASSWORD`
+`SESSION_SECRET` (Pflicht in Produktion), `ADMIN_USER`/`ADMIN_PASSWORD`
 (einmaliger Seed). Vorlage: `.env.example` — echte `.env` niemals committen.
 
 **Standalone bauen und starten:**
@@ -65,7 +65,7 @@ docker run -d --name winecashing \
   --env-file .env \
   winecashing
 
-# Einmalig den ersten Admin anlegen (liest ADMIN_USERNAME/ADMIN_PASSWORD):
+# Einmalig den ersten Admin anlegen (liest ADMIN_USER/ADMIN_PASSWORD):
 docker exec -u node winecashing npm run seed:admin
 ```
 
