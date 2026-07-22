@@ -16,6 +16,7 @@ import {
   isPlausibleMovement,
   smoothPosition,
   smoothRotation,
+  smoothRotationTimed,
   shouldRevealHint,
 } from '../public/js/sensorFusion.js';
 
@@ -169,4 +170,45 @@ test('smoothRotation: einzelner Ausreißer reißt die Nadel nicht komplett herum
   const afterOutlier = smoothRotation(stable, 180, 0.18); // ein einzelnes 180°-Ausreißer-Sample
   // Ein Wert bei träger Glättung bewegt sich nur ein kleines Stück, nicht bis zum Ausreißer.
   assert.ok(angularDifference(afterOutlier, stable) < 40, 'ein Ausreißer bewegt die Nadel nur wenig');
+});
+
+// --- Zeitkonstanten-basierte Rotations-Glättung (Bug: Kompassnadel zittert/ruckelt beim
+// Drehen, weil smoothRotation() mit fester Anteils-Glättung PRO SAMPLE bei schwankender
+// Sensor-Rate mal zu wenig, mal zu viel glättet) ---
+test('smoothRotationTimed: erster Wert wird direkt übernommen (kein Einschwingen)', () => {
+  assert.equal(smoothRotationTimed(null, 275, 100), 275);
+});
+
+test('smoothRotationTimed: dtMs=0 -> keine Bewegung (alpha=0)', () => {
+  assert.equal(smoothRotationTimed(90, 180, 0, 150), 90);
+});
+
+test('smoothRotationTimed: sehr großes dtMs -> praktisch am Zielwert', () => {
+  approx(smoothRotationTimed(0, 100, 100_000, 150), 100, 1e-6, 'konvergiert bei viel Zeit vollständig');
+});
+
+test('smoothRotationTimed: nimmt den kürzeren Weg + bleibt kontinuierlich über 0/360 (wie smoothRotation)', () => {
+  assert.equal(smoothRotationTimed(350, 10, 1e9, 1), 370); // kontinuierlich, NICHT 10
+  assert.equal(normalize360(smoothRotationTimed(350, 10, 1e9, 1)), 10);
+  assert.equal(smoothRotationTimed(10, 350, 1e9, 1), -10); // kurz rückwärts durch 0, nicht vorwärts durch 180°
+  assert.equal(normalize360(smoothRotationTimed(10, 350, 1e9, 1)), 350);
+});
+
+test('smoothRotationTimed: RATE-INVARIANZ — gleiche Gesamtzeit in vielen kleinen Schritten ≈ wenigen großen (Kern des Fixes)', () => {
+  const timeConstant = 150;
+  // Variante A: 4 Schritte à 100ms (400ms gesamt), Ziel bleibt konstant bei 90°.
+  let rotA = null;
+  for (let i = 0; i < 4; i++) rotA = smoothRotationTimed(rotA, 90, 100, timeConstant);
+  // Variante B: 40 Schritte à 10ms (400ms gesamt), gleiches Ziel.
+  let rotB = null;
+  for (let i = 0; i < 40; i++) rotB = smoothRotationTimed(rotB, 90, 10, timeConstant);
+  approx(rotA, rotB, 1, 'unabhängig von der Sample-Rate konvergiert es auf denselben Wert nach derselben Gesamtzeit');
+});
+
+test('smoothRotationTimed: bei sehr hoher Rate (kleines dtMs) bewegt sich die Nadel nur minimal pro Sample (Zittern gedämpft)', () => {
+  // 60 Hz-Sensor-Rauschen: ~16ms zwischen Samples. Ein einzelnes Rausch-Sample darf die Nadel
+  // nur wenig bewegen, sonst zittert sie sichtbar mit jedem Rohwert mit.
+  const stable = smoothRotationTimed(null, 0, 0, 150);
+  const afterOneNoisySample = smoothRotationTimed(stable, 5, 16, 150); // 5° Rauschen, 16ms später
+  assert.ok(Math.abs(afterOneNoisySample - stable) < 1, 'ein einzelnes hochfrequentes Sample bewegt die Nadel kaum');
 });

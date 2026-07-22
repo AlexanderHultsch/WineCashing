@@ -108,3 +108,5 @@ RouteState    = { route, waypoints, progress, waypoint_status, server_time }
 ## Feinjustierung
 
 Filtergewichte, Deklinations-Näherung und Plausibilitäts-Schwellen (`CONFIG` in `sensorFusion.js`) werden im Feldtest kalibriert, **ohne** die Funktions-Signaturen/Verträge zu ändern (Vertrag C.6). Kalibrierung läuft über den Trace-Replay-Test, nicht über erneute Feldtests.
+
+**Kompassnadel-Glättung (Bug-Fix Zittern/Ruckeln):** Die Rotations-Pipeline (`searchMode.js#updateRotation`) glättet über `smoothRotationTimed(prev, target, dtMs, timeConstantMs)` — eine **Zeitkonstante** (`CONFIG.ROTATION_TIME_CONSTANT_MS`) statt eines festen Anteils pro Sample, damit die Trägheit unabhängig von der stark schwankenden `deviceorientation`-Rate ist. Ein **Render-Totband** (`CONFIG.ROTATION_RENDER_DEADBAND_DEG`, geprüft mit `angularDifference`) hält die im ViewModel sichtbare `renderedRotation` bei Änderungen unterhalb der Schwelle unverändert. Die ältere `smoothRotation`/`ROTATION_SMOOTHING` bleibt im Code (getestet), wird von der Pipeline aber nicht mehr aufgerufen.

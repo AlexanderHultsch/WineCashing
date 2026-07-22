@@ -57,6 +57,7 @@ function setup(overrides = {}) {
     geolocation,
     sensors,
     pollIntervalMs: 1_000_000, // Intervall feuert im Test nicht; stop() räumt auf
+    render: overrides.render,
   });
   return { controller, api, status, calls, triggerGpsError: (err) => capturedGpsError(err) };
 }
@@ -84,6 +85,27 @@ test('GPS-Pipeline: Distanz sinkt beim Zugehen, Orientation liefert Rotation', a
 
   controller.onOrientationSample({ rawHeading: 0, absolute: true, source: 'absolute' });
   assert.equal(typeof controller.getViewModel().rotation, 'number');
+  controller.stop();
+});
+
+test('Kompass-Zittern-Fix: Render-Totband unterdrückt winzige Änderungen, lässt echte Drehung durch', async () => {
+  let renderCount = 0;
+  const { controller } = setup({ render: () => renderCount++ });
+  await controller.start();
+
+  controller.onGpsSample({ lat: 48.1371, lng: 11.5754, accuracy: 5, timestamp: 0 });
+  renderCount = 0; // ab hier zählen (GPS-Sample rendert immer, das ist hier nicht der Testgegenstand)
+
+  controller.onOrientationSample({ rawHeading: 0, source: 'ios', absolute: true, timestamp: 1000 });
+  assert.equal(renderCount, 1, 'erstes Rotations-Sample rendert immer (Totband kennt noch keinen Referenzwert)');
+
+  // ~10ms später, 0.3° Sensorrauschen — deutlich unter der 2°-Totband-Schwelle.
+  controller.onOrientationSample({ rawHeading: 0.3, source: 'ios', absolute: true, timestamp: 1010 });
+  assert.equal(renderCount, 1, 'Sensorrauschen unterhalb der Totband-Schwelle löst KEIN Render aus (Bug-Fix Zittern)');
+
+  // Deutliche, echte Drehung um 90° nach ausreichend Zeit.
+  controller.onOrientationSample({ rawHeading: 90, source: 'ios', absolute: true, timestamp: 5000 });
+  assert.equal(renderCount, 2, 'eine echte, deutliche Drehung wird weiterhin gerendert');
   controller.stop();
 });
 

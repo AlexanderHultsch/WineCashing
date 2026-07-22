@@ -114,7 +114,9 @@ export function createSearchController(deps) {
   let prevSmoothed = null;
   let lastGps = null;
   let lastHeading = null;
-  let rotation = null;
+  let rotation = null; // interner, kontinuierlicher Glättungswert (jedes Sample aktualisiert ihn)
+  let renderedRotation = null; // ans UI weitergereichter Wert (Totband, s. updateRotation)
+  let lastRotationTs = null;
   let smoothedDistanceM = null;
   let declination = 0;
   let screenAngle = 0;
@@ -135,7 +137,7 @@ export function createSearchController(deps) {
       distanceMeters: smoothedDistanceM,
       bottles: smoothedDistanceM != null ? fusion.metersToBottles(smoothedDistanceM, config) : null,
       hintRevealed: smoothedDistanceM != null && fusion.shouldRevealHint(smoothedDistanceM, config),
-      rotation,
+      rotation: renderedRotation, // gedeadbandet (Bug-Fix Zittern) — nicht der interne Rohwert
       queuedActions: actionQueue.length,
       gpsProblem,
       // iOS 13+: DeviceOrientation braucht eine explizite, gesten-gebundene Freigabe. Wurde sie
@@ -206,11 +208,28 @@ export function createSearchController(deps) {
   }
 
   // --- Sensor-Pipeline (Vertrag C.4) ---
-  function updateRotation(fromPos, target) {
-    if (lastHeading == null) return;
+  // Bug-Fix "Kompassnadel zittert/ruckelt": zwei Maßnahmen kombiniert.
+  // 1) smoothRotationTimed() glättet über eine feste ZEITKONSTANTE statt eines festen Anteils
+  //    pro Sample — dadurch ist das Ergebnis unabhängig von der (stark schwankenden) Sensor-Rate.
+  // 2) Render-Totband: der intern immer aktualisierte `rotation`-Wert wird nur dann als
+  //    `renderedRotation` (und damit ans UI) weitergereicht, wenn er sich merklich bewegt hat.
+  //    Unterhalb der Schwelle hält die Nadel optisch still, statt jedes Sensorrauschen sichtbar
+  //    mitzumachen. Rückgabe: true, wenn renderedRotation sich geändert hat (steuert emit() an
+  //    den Aufrufstellen, damit Orientation-Events nicht bei jedem Sample unnötig rendern).
+  function updateRotation(fromPos, target, nowTs) {
+    if (lastHeading == null) return false;
+    const ts = nowTs ?? Date.now();
     const bearing = fusion.computeBearing(fromPos.lat, fromPos.lng, target.lat, target.lng);
     const rawRotation = fusion.computeCompassRotation(bearing, lastHeading, declination);
-    rotation = fusion.smoothRotation(rotation, rawRotation, config.ROTATION_SMOOTHING);
+    const dtMs = lastRotationTs == null ? config.ROTATION_TIME_CONSTANT_MS : Math.max(ts - lastRotationTs, 0);
+    lastRotationTs = ts;
+    rotation = fusion.smoothRotationTimed(rotation, rawRotation, dtMs, config.ROTATION_TIME_CONSTANT_MS);
+
+    if (renderedRotation == null || fusion.angularDifference(renderedRotation, rotation) >= config.ROTATION_RENDER_DEADBAND_DEG) {
+      renderedRotation = rotation;
+      return true;
+    }
+    return false;
   }
 
   // GPS-Fehler sind NICHT gleichbedeutend mit "offline" (das Netz kann völlig intakt sein):
@@ -241,8 +260,8 @@ export function createSearchController(deps) {
     smoothedDistanceM = fusion.computeDistanceMeters(smoothed.lat, smoothed.lng, target.lat, target.lng);
     prevSmoothed = smoothed;
     lastGps = sample;
-    updateRotation(smoothed, target);
-    emit();
+    updateRotation(smoothed, target, sample.timestamp);
+    emit(); // Distanz hat sich fast sicher geändert -> immer emitten, Rotation ggf. im Totband
   }
 
   function onOrientationSample(sample) {
@@ -250,8 +269,11 @@ export function createSearchController(deps) {
     sawOrientation = true;
     lastHeading = fusion.normalizeHeading(sample, screenAngle);
     if (prevSmoothed && activeWaypoint) {
-      updateRotation(prevSmoothed, { lat: activeWaypoint.lat, lng: activeWaypoint.lng });
-      emit();
+      // Nur emitten, wenn die Nadel sich merklich bewegt hat (Totband) oder es das allererste
+      // Sample ist — sonst würde jedes Orientation-Event (bis 60 Hz) einen Render auslösen,
+      // auch wenn sich die sichtbare Rotation gar nicht ändert.
+      const rotationChanged = updateRotation(prevSmoothed, { lat: activeWaypoint.lat, lng: activeWaypoint.lng }, sample.timestamp);
+      if (rotationChanged || firstSample) emit();
     } else if (firstSample) {
       emit(); // "Kompass inaktiv"-Hinweis in der UI sofort löschen
     }

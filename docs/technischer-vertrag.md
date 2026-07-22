@@ -320,15 +320,21 @@ Bei jedem GPS-Event (newSample):
   → UI: Distanz/Flaschen aktualisieren; Nahbereich-Darstellung + Hinweis gemäß reveal (6.3/6.4)
 
 Bei jedem Orientation-Event (orientation):
-  heading   = normalizeHeading(orientation, screenAngle)
-  bearingT  = computeBearing(smoothed.lat, smoothed.lng, target.lat, target.lng)
-  rotation  = computeCompassRotation(bearingT, heading, declination)
-  → UI: Flaschen-Grafik auf rotation drehen (mehrmals/s, 7.1)
+  heading      = normalizeHeading(orientation, screenAngle)
+  bearingT     = computeBearing(smoothed.lat, smoothed.lng, target.lat, target.lng)
+  rawRotation  = computeCompassRotation(bearingT, heading, declination)
+  dtMs         = orientation.timestamp - lastRotationTs   # Zeit seit dem letzten Rotations-Update
+  rotation     = smoothRotationTimed(rotation, rawRotation, dtMs, ROTATION_TIME_CONSTANT_MS)
+  → Render-Totband: nur wenn angularDifference(renderedRotation, rotation) >= ROTATION_RENDER_DEADBAND_DEG
+    (oder renderedRotation noch unbekannt): renderedRotation = rotation, UI rendert
+    → UI: Flaschen-Grafik auf renderedRotation drehen
 
 Heading-Quelle (7.1):
   wenn impliedSpeed > MOVE_SPEED_THRESHOLD: GPS-Bewegungsvektor als Referenz
   sonst: normalizeHeading() (Kompass)
 ```
+
+**Amendment (Bug-Fix „Kompassnadel zittert/ruckelt"):** `smoothRotationTimed(prevRotation, targetRotation, dtMs, timeConstantMs)` ersetzt in der Pipeline die ältere, sample-raten-abhängige `smoothRotation(prev, next, smoothingFactor)` — Glättung über eine feste **Zeitkonstante** (`ROTATION_TIME_CONSTANT_MS`, Default 150 ms) statt eines festen Anteils pro `deviceorientation`-Sample, dessen Rate je nach Gerät stark schwankt (10–60 Hz). Zusätzlich unterdrückt ein **Render-Totband** (`ROTATION_RENDER_DEADBAND_DEG`, Default 2°) Sensorrauschen unterhalb der Schwelle, statt es sichtbar zu machen. `smoothRotation`/`ROTATION_SMOOTHING` bleiben unverändert im Code (Legacy, weiterhin getestet), werden von der Pipeline aber nicht mehr aufgerufen. Gleicher Kontinuitäts-Vertrag wie bisher (C.3): Rückgabe nicht normalisieren, kürzester Weg um den Kreis.
 
 **Genauigkeits-Rahmen (Spec 6.1) im Code sichtbar machen:** Unterschreitet `distM` die Hinweisschwelle, wird die exakte Flaschen-Zahl zugunsten der Nah-Darstellung zurückgenommen — die Zahl soll dort keine Scheinpräzision vorgaukeln.
 

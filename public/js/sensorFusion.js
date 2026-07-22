@@ -20,7 +20,9 @@ export const CONFIG = {
   RUN_SPEED_SPIKE: 5.0,     // m/s — kurzzeitige Toleranz
   HINT_THRESHOLD_M: 15,     // m — Hinweis-Freischaltung
   BOTTLE_LENGTH_M: 0.3,
-  ROTATION_SMOOTHING: 0.18, // 0..1 — Anteil des neuen Werts je Update (träge, aber responsiv)
+  ROTATION_SMOOTHING: 0.18,        // 0..1 — Anteil des neuen Werts je Update (Legacy, s. smoothRotation)
+  ROTATION_TIME_CONSTANT_MS: 150,  // ms — Zeitkonstante der Rotationsglättung (rate-invariant, s. smoothRotationTimed)
+  ROTATION_RENDER_DEADBAND_DEG: 2, // ° — kleinere Änderungen werden nicht ans UI weitergereicht (Zittern)
 };
 
 const EARTH_RADIUS_M = 6371000; // mittlerer Erdradius
@@ -196,6 +198,22 @@ export function smoothRotation(prevRotation, newRotation, smoothingFactor = CONF
   if (prevRotation == null) return normalize360(newRotation);
   const shortestDiff = ((normalize360(newRotation) - normalize360(prevRotation) + 540) % 360) - 180;
   return prevRotation + shortestDiff * smoothingFactor;
+}
+
+// Zeitkonstanten-basierte Rotationsglättung (Bug-Fix: Kompassnadel zittert/ruckelt beim
+// Drehen und schwingt nach einer Drehung mehrfach über). smoothRotation() oben glättet mit
+// einem FESTEN Anteil PRO SAMPLE — bei deviceorientation-Events, die je nach Gerät mit stark
+// schwankender Rate (10..60 Hz) feuern, folgt die Nadel bei hoher Rate praktisch ungefiltert
+// dem Sensorrauschen (sichtbares Zittern), bei niedriger Rate ruckelt sie dagegen sprunghaft.
+// Hier bestimmt stattdessen eine feste ZEITKONSTANTE (ms) die Trägheit — unabhängig davon, wie
+// oft der Sensor pro Sekunde liefert (klassischer exponentieller Filter mit alpha = 1 - e^(-dt/τ)).
+// Gleicher Kontinuitäts-Vertrag wie smoothRotation: Rückgabe NICHT normalisieren (s. Kommentar
+// oben), kürzester Weg um den Kreis, `null` als prevRotation übernimmt den ersten Wert direkt.
+export function smoothRotationTimed(prevRotation, targetRotation, dtMs, timeConstantMs = CONFIG.ROTATION_TIME_CONSTANT_MS) {
+  if (prevRotation == null) return normalize360(targetRotation);
+  const alpha = timeConstantMs > 0 ? 1 - Math.exp(-Math.max(dtMs, 0) / timeConstantMs) : 1;
+  const shortestDiff = ((normalize360(targetRotation) - normalize360(prevRotation) + 540) % 360) - 180;
+  return prevRotation + shortestDiff * alpha;
 }
 
 // --- Ableitungen fürs UI ---

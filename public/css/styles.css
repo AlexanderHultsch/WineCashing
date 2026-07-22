@@ -382,7 +382,11 @@ button:disabled {
   font-size: 90px; /* Fallback ohne clamp() (Safari < 13.1) */
   font-size: clamp(64px, 22vw, 120px);
   line-height: 1;
-  transition: transform 0.2s ease-out;
+  /* Bug-Fix Kompassnadel-Zittern: Glättung passiert jetzt vollständig in JS
+     (smoothRotationTimed + Render-Totband, searchMode.js). Diese Transition überbrückt nur
+     noch die Lücke zwischen zwei ans UI weitergereichten Werten — kein zweiter, abbremsender
+     Filter mehr (ease-out addierte sich sichtbar zum JS-Überschwingen). */
+  transition: transform 0.12s linear;
   transform-origin: 50% 50%;
   will-change: transform;
 }
